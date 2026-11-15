@@ -226,6 +226,9 @@ body.com-timer .toast{bottom:calc(176px + env(safe-area-inset-bottom))}
 /* bioimpedância: grade dos segmentos */
 .bio-seg{display:grid;grid-template-columns:70px repeat(4,minmax(0,1fr));gap:6px;align-items:center}
 .bio-seg input[type=number]{min-width:0;padding:8px 6px;font-size:15px}
+input.lido{border-color:var(--acento)!important;background:var(--acento-fundo)!important}
+input.lido.calc{border-style:dashed!important}
+input.lido.confira{border-color:var(--alerta)!important;background:transparent!important}
 </style>
 </head>
 <body>
@@ -2754,7 +2757,7 @@ function cartaoSegmentos(sg) {
 }
 function telaBio() {
   const l = bioOrdenada();
-  if (!l.length) return '<div class="cartao realce"><h2>Bioimpedância</h2><p class="sub">Copie para cá os números da sua balança de bioimpedância. O app atualiza o seu peso e o seu % de gordura no perfil, recalcula as metas com a sua massa magra e mostra a evolução a cada avaliação.</p><button class="btn pri bloco" data-acao="novaBio">+ Registrar bioimpedância</button></div>';
+  if (!l.length) return '<div class="cartao realce"><h2>Bioimpedância</h2><p class="sub">Copie para cá os números da sua balança de bioimpedância. O app atualiza o seu peso e o seu % de gordura no perfil, recalcula as metas com a sua massa magra e mostra a evolução a cada avaliação.</p><button class="btn pri bloco" data-acao="bioImagem">📷 Enviar a imagem da balança</button><button class="btn bloco" style="margin-top:8px" data-acao="novaBio">Digitar os números</button></div>';
   const x = l[l.length - 1], ant = l.length > 1 ? l[l.length - 2] : null;
   let h = '<div class="cartao"><div class="cab"><h2>Última avaliação</h2><span class="mini">' + dataCurta(x.d) + '</span><div class="dir"><button class="ic" data-acao="editarBio" data-d="' + x.d + '" aria-label="Editar">' + IC.editar + '</button><button class="btn peq pri" data-acao="novaBio">+ Nova</button></div></div>';
   h += '<div class="grade2 tiles">' + BIO.filter(c => c[4]).map(c => tileBio(c, x, ant)).join('') + '</div>';
@@ -2777,13 +2780,34 @@ function folhaBio(d0) {
   const campo = c => '<label class="campo"><span>' + c[1] + (c[2] ? ' (' + c[2] + ')' : '') + '</span><input type="number" inputmode="decimal" step="any" data-b="' + c[0] + '" value="' + (ex[c[0]] != null ? ex[c[0]] : '') + '" placeholder="' + (ant[c[0]] != null ? 'antes: ' + fmtN(ant[c[0]]) : '') + '"></label>';
   const sg = ex.seg || {};
   const segIn = (t, k, i) => { const v = sg[t] && sg[t][k] ? sg[t][k][i] : null; return '<input type="number" inputmode="decimal" step="any" data-s="' + t + '|' + k + '|' + i + '" value="' + (v != null ? v : '') + '">'; };
-  const fl = abrirFolha('<h2>' + (d0 ? 'Bioimpedância de ' + dataCurta(d) : 'Registrar bioimpedância') + '</h2><p class="mini" style="margin:4px 0 10px">Copie os números da balança na mesma ordem em que ela mostra. Só o peso é obrigatório: deixe vazio o que a sua balança não tiver.</p>' +
+  const fl = abrirFolha('<h2>' + (d0 ? 'Bioimpedância de ' + dataCurta(d) : 'Registrar bioimpedância') + '</h2><div class="cartao realce" style="margin:6px 0 12px;padding:12px"><button class="btn pri bloco" id="bioImg">📷 Preencher pela imagem da balança</button><input type="file" accept="image/*" id="bioArq" hidden><div class="mini" id="bioImgSt" style="margin-top:8px">Envie a captura de tela do resultado (a tela do app da balança, inteira). O app lê os números e preenche tudo para você conferir. A leitura é feita no próprio celular: a imagem não é enviada para lugar nenhum. Na primeira vez ele baixa o leitor (precisa de internet).</div></div>' +
+    '<p class="mini" style="margin:0 0 10px">Ou digite os números na mesma ordem da balança. Só o peso é obrigatório.</p>' +
     '<label class="campo"><span>Data da avaliação</span><input type="date" id="bioD" value="' + d + '"' + (d0 ? ' disabled' : '') + '></label>' +
     '<div class="grade2">' + BIO.map(campo).join('') + '</div>' +
-    '<details style="margin:6px 0 12px"><summary>Análise por segmento (opcional)</summary><p class="mini" style="margin:6px 0">Gordura e músculo de cada parte do corpo: o peso (kg) e o % que a balança mostra embaixo dele.</p><div class="bio-seg"><span></span><span class="mini">Gord. kg</span><span class="mini">Gord. %</span><span class="mini">Músc. kg</span><span class="mini">Músc. %</span>' +
+    '<details id="bioSegD" style="margin:6px 0 12px"><summary>Análise por segmento (opcional)</summary><p class="mini" style="margin:6px 0">Gordura e músculo de cada parte do corpo: o peso (kg) e o % que a balança mostra embaixo dele.</p><div class="bio-seg"><span></span><span class="mini">Gord. kg</span><span class="mini">Gord. %</span><span class="mini">Músc. kg</span><span class="mini">Músc. %</span>' +
     SEGS.map(([k, n]) => '<span class="mini">' + n + '</span>' + segIn('g', k, 0) + segIn('g', k, 1) + segIn('m', k, 0) + segIn('m', k, 1)).join('') + '</div></details>' +
     '<div class="grade2">' + (d0 ? '<button class="btn perigo" id="bioR">Excluir</button>' : '<button class="btn" id="bioC">Cancelar</button>') + '<button class="btn pri" id="bioO">Salvar</button></div>', el => {
       if ($('#bioC', el)) $('#bioC', el).onclick = () => fecharFolha(fl);
+      $('#bioImg', el).onclick = () => $('#bioArq', el).click();
+      $('#bioArq', el).onchange = async e => {
+        const f = e.target.files[0]; if (!f) return; e.target.value = '';
+        const st = $('#bioImgSt', el), b = $('#bioImg', el); b.disabled = true;
+        st.textContent = 'Preparando o leitor… (na primeira vez ele baixa alguns MB)';
+        try {
+          const r = await lerBioImagem(f, x => { st.textContent = 'Lendo a imagem… ' + Math.round(x * 100) + '%'; });
+          const n = r ? preencherBio(el, r) : 0;
+          const nomes = ks => ks.map(k => BIO.find(x => x[0] === k)[1]).join(', ');
+          if (!n) st.textContent = 'Não consegui ler os números desta imagem. Tente uma captura de tela da tela inteira, sem cortar, ou digite os valores.';
+          else st.innerHTML = '<b>' + (n - r.calc.length) + ' de ' + BIO.length + ' números lidos' + (r.calc.length ? ' e ' + r.calc.length + ' calculados pelas contas da balança' : '') + (r.seg ? ', mais os segmentos' : '') + (r.d ? ', data ' + dataCurta(r.d) : '') + '.</b> ' +
+            (r.confira.length ? '<span style="color:var(--alerta)">Confira com atenção: ' + esc(nomes(r.confira)) + ' (não bate com as contas da balança).</span> ' : '') +
+            (n < BIO.length ? 'Os vazios não foram lidos: digite se quiser. ' : '') + 'Confira os campos destacados com a imagem antes de salvar.';
+        } catch (er) {
+          console.error(er);
+          st.textContent = er.message === 'tempo' ? 'A leitura demorou demais neste aparelho. Digite os valores, ou tente de novo com a tela ligada e o app aberto.'
+            : (navigator.onLine === false || er.message === 'leitor') ? 'Não consegui carregar o leitor de imagem (na primeira vez precisa de internet). Tente com internet ou digite os valores.'
+              : 'Não consegui ler a imagem. Digite os valores ou tente outra captura de tela.';
+        } finally { b.disabled = false; }
+      };
       if ($('#bioR', el)) $('#bioR', el).onclick = async () => { if (await confirmar('Excluir a bioimpedância de ' + dataCurta(d) + '? O peso e o % de gordura dela continuam em Peso e Medidas.', 'Excluir', true)) { S.bio = S.bio.filter(x => x.d !== d); salvar(); fecharFolha(fl); render(); } };
       $('#bioO', el).onclick = () => {
         const dd = $('#bioD', el).value; if (!dd) { toast('Escolha a data.'); return; }
@@ -2813,6 +2837,181 @@ function aplicarBio(n) {
   if (maisNova) { S.perfil.peso = pesoAtual(); if (n.gord != null) S.perfil.bf = n.gord; }
   salvar(); render();
   toast(maisNova ? 'Bioimpedância salva. Peso' + (n.gord != null ? ' e % de gordura' : '') + ' atualizados no perfil; metas recalculadas.' : 'Bioimpedância salva.');
+}
+/* ---- ler a imagem da bioimpedância: OCR (Tesseract.js) no próprio aparelho; a imagem não sai do celular ----
+   Na primeira vez baixa o leitor (alguns MB) da internet; depois o navegador guarda. */
+/* O leitor (Tesseract.js 5.1.1) fica no próprio site, na pasta ocr/: nada de código de terceiros na hora de usar,
+   e o service worker guarda para funcionar sem internet depois. Só quando o app é aberto como arquivo no
+   computador (sem site) ele vem da jsDelivr, com o script principal conferido por hash (SRI). */
+const OCR_LOCAL = location.protocol.startsWith('http');
+const OCR_DIR = OCR_LOCAL ? new URL('ocr', location.href).href : null;
+let _ocr = null;
+function carregarOCR() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (!_ocr) _ocr = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    if (OCR_LOCAL) s.src = OCR_DIR + '/tesseract.min.js';
+    else { s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js'; s.integrity = 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F'; s.crossOrigin = 'anonymous'; }
+    s.onload = () => res(window.Tesseract); s.onerror = () => { _ocr = null; rej(new Error('leitor')); };
+    document.head.appendChild(s);
+  });
+  return _ocr;
+}
+function opcoesOCR() { return OCR_LOCAL ? { workerPath: OCR_DIR + '/worker.min.js', corePath: OCR_DIR, langPath: OCR_DIR } : {}; }
+/* imagem pequena é ampliada (o leitor erra menos com letras maiores); tudo vira tons de cinza e as faixas de fundo
+   escuro (o cabeçalho azul com letra branca, onde fica a data) são invertidas para o leitor enxergar */
+async function prepararImagem(blob) {
+  const im = await abrirImagem(blob); const w = im.naturalWidth, h = im.naturalHeight;
+  let f = w < 1100 ? Math.min(5, 1100 / w) : 1;
+  if (w * h * f * f > 12e6) f = Math.sqrt(12e6 / (w * h)); /* teto de memória: celular fraco não aguenta imagem gigante */
+  const c = document.createElement('canvas'); c.width = Math.round(w * f); c.height = Math.round(h * f);
+  const g = c.getContext('2d', { willReadFrequently: true }); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, c.width, c.height);
+  URL.revokeObjectURL(im.src);
+  const d = g.getImageData(0, 0, c.width, c.height), p = d.data, W = c.width;
+  for (let y = 0; y < c.height; y++) {
+    let s = 0, n = 0; for (let x = 0; x < W; x += 4) { const i = (y * W + x) * 4; s += 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]; n++; }
+    const inv = s / n < 110;
+    for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; let v = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]; if (inv) v = 255 - v; p[i] = p[i + 1] = p[i + 2] = v; }
+  }
+  g.putImageData(d, 0, 0);
+  return c;
+}
+/* com limite de tempo: num celular fraco ou sem internet, a pessoa recebe uma mensagem em vez de esperar para sempre */
+async function lerBioImagem(blob, progresso) {
+  let worker = null, tm = null, acabou = false;
+  const limite = new Promise((_, rej) => { tm = setTimeout(() => rej(new Error('tempo')), 180000); });
+  try {
+    return await Promise.race([limite, (async () => {
+      const T = await carregarOCR();
+      const canvas = await prepararImagem(blob);
+      const w = await T.createWorker('por', 1, Object.assign({ logger: m => { if (progresso && m.status === 'recognizing text') progresso(m.progress || 0); } }, opcoesOCR()));
+      if (acabou) { w.terminate(); throw new Error('tempo'); }
+      worker = w;
+      const { data } = await worker.recognize(canvas);
+      const r = interpretarBio(data.words || [], canvas.width); window.__ocr = r; /* para conferência */ return r;
+    })()]);
+  } finally { acabou = true; clearTimeout(tm); if (worker) worker.terminate(); }
+}
+/* transforma as palavras lidas (com posição) nos campos da bioimpedância */
+function interpretarBio(words, W) {
+  const semAc = t => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const ws = words.filter(w => w.text && w.text.trim()).map(w => ({ t: w.text.trim(), x: (w.bbox.x0 + w.bbox.x1) / 2, x0: w.bbox.x0, y: (w.bbox.y0 + w.bbox.y1) / 2, h: w.bbox.y1 - w.bbox.y0 }));
+  const out = { campos: {}, seg: null, d: null, calc: [], confira: [] };
+  if (!ws.length) return out;
+  const alturas = ws.map(w => w.h).sort((a, b) => a - b); const hm = alturas[Math.floor(alturas.length / 2)] || 10;
+  /* junta as palavras em linhas pela altura na tela (as duas colunas dos segmentos ficam na mesma linha) */
+  const linhas = [];
+  ws.sort((a, b) => a.y - b.y).forEach(w => {
+    const l = linhas.length && Math.abs(linhas[linhas.length - 1].y - w.y) < hm * 0.6 ? linhas[linhas.length - 1] : null;
+    if (l) { l.ws.push(w); l.y = (l.y * (l.ws.length - 1) + w.y) / l.ws.length; } else linhas.push({ y: w.y, ws: [w] });
+  });
+  linhas.forEach(l => { l.ws.sort((a, b) => a.x0 - b.x0); l.txt = l.ws.map(w => w.t).join(' '); l.n = semAc(l.txt); });
+  out.linhas = linhas.map(l => Math.round(l.y) + ' | ' + l.txt);
+  /* número dentro da faixa do campo. Erros comuns do leitor: ponto perdido ("347" = 34.7) e um dígito a mais ("710.3" = 70.3) */
+  const ajusta = (s, min, max) => {
+    const v = Number(s.replace(',', '.')); if (v >= min && v <= max) return v;
+    const pt = s.split(/[.,]/);
+    if (pt.length === 1) { for (const d of [10, 100]) { const w = Math.round(v / d * 100) / 100; if (w >= min && w <= max) return w; } return null; }
+    for (let i = 0; pt[0].length > 1 && i < pt[0].length; i++) { const w = Number(pt[0].slice(0, i) + pt[0].slice(i + 1) + '.' + pt[1]); if (w >= min && w <= max) return w; }
+    return null;
+  };
+  /* o valor fica à direita: vale o último número da linha que faz sentido (a bolinha colorida às vezes vira "0") */
+  /* primeiro o número colado na unidade do campo (%, kg, kcal); se não houver, o último número que faz sentido */
+  const UNID = { '%': /(\d+(?:[.,]\d+)?)\s*%/g, kg: /(\d+(?:[.,]\d+)?)\s*k[gq9a]/gi, kcal: /(\d+(?:[.,]\d+)?)\s*k[ce]al/gi };
+  const numero = (t, min, max, un) => {
+    t = t.replace(/(\d[.,])\//g, '$17').replace(/(\d)[.,]\s+(\d)/g, '$1.$2'); /* "23./" = 23.7 (o 7 vira barra); "27. 5" = 27.5 */
+    if (UNID[un]) { const ms = [...t.matchAll(UNID[un])]; for (let i = ms.length - 1; i >= 0; i--) { const v = ajusta(ms[i][1], min, max); if (v != null) return v; } }
+    return numeroSolto(t, min, max);
+  };
+  const numeroSolto = (t, min, max) => { const m = t.match(/\d+(?:[.,]\d+)?/g) || []; for (let i = m.length - 1; i >= 0; i--) { const v = ajusta(m[i], min, max); if (v != null) return v; } return null; };
+  const faixa = k => BIO.find(b => b[0] === k);
+  /* data da avaliação (dd/mm/aaaa) */
+  for (const l of linhas) { const m = l.txt.match(/(\d{2})\/(\d{2})\/(\d{4})/); if (m && m[3] + '-' + m[2] + '-' + m[1] <= hojeISO()) { out.d = m[3] + '-' + m[2] + '-' + m[1]; break; } }
+  const yDe = re => { const l = linhas.find(l => re.test(l.n)); return l ? l.y : null; };
+  const yG = yDe(/segmentar/), yM = yDe(/equilibrio/), yI = yDe(/indice corporal/);
+  /* índice corporal: rótulo e valor na mesma linha; a ordem importa (os mais específicos antes) */
+  const ROT = [['ideal', /corporal ideal|peso ideal/], ['pesoAgua', /peso.{0,30}agua|da agua/], ['massaProt', /massa de prote/], ['magra', /corporal magra|massa magra/], ['massaMusc', /massa muscular/],
+    ['ossea', /ossea/], ['massaGorda', /massa gorda/], ['subcut', /subcut/], ['visceral', /viscer/], ['gord', /gordura corp/], ['agua', /agua corp/],
+    ['esq', /esquel/], ['musc', /taxa musc/], ['prot', /prote/], ['tmb', /\btmb\b|\bbmr\b|k[ce]al/], ['idadeCorpo', /idade do corpo|idade corporal/], ['imc', /\bi[mn][cg]\b|\bbmi\b/], ['peso', /^(?!.*(agua|ideal)).*\bpeso\b/]];
+  linhas.forEach(l => {
+    if (yI != null && l.y < yI) return; /* os números do índice ficam abaixo do título "Índice corporal" */
+    const r = ROT.find(([k, re]) => out.campos[k] == null && re.test(l.n)); if (!r) return;
+    const c = faixa(r[0]); const v = numero(l.txt.replace(/\d{2}\/\d{2}\/\d{4}/, ''), c[5], c[6], c[2]);
+    if (v != null) { out.campos[r[0]] = v; l.k = r[0]; }
+  });
+  /* o peso é a primeira linha do índice: se o rótulo não foi lido, vale o primeiro número de peso logo abaixo do título */
+  if (out.campos.peso == null && yI != null) {
+    const ys = linhas.filter(l => l.k).map(l => l.y); const yPrim = ys.length ? Math.min(...ys) : Infinity;
+    const l = linhas.find(l => l.y > yI && l.y < yPrim && !l.k && numero(l.txt, 30, 300, 'kg') != null);
+    if (l) out.campos.peso = numero(l.txt, 30, 300, 'kg');
+  }
+  /* as contas da própria balança: completam o que faltou e mostram o que não bate */
+  /* só calcula a partir do que foi LIDO, nunca de outro calculado, para um erro de leitura não se espalhar */
+  const c = out.campos, L = Object.assign({}, c), r1 = x => Math.round(x * 10) / 10;
+  const deriva = (k, v) => { const b = faixa(k); if (c[k] == null && v != null && isFinite(v) && v >= b[5] && v <= b[6]) { c[k] = r1(v); out.calc.push(k); } };
+  if (L.peso == null && L.magra != null && L.massaGorda != null) deriva('peso', L.magra + L.massaGorda);
+  if (L.peso != null) {
+    const p = L.peso;
+    if (L.gord != null) deriva('massaGorda', p * L.gord / 100);
+    if (L.massaGorda != null) { deriva('gord', L.massaGorda / p * 100); deriva('magra', p - L.massaGorda); }
+    if (L.agua != null) deriva('pesoAgua', p * L.agua / 100);
+    if (L.pesoAgua != null) deriva('agua', L.pesoAgua / p * 100);
+    if (L.prot != null) deriva('massaProt', p * L.prot / 100);
+    if (L.massaProt != null) deriva('prot', L.massaProt / p * 100);
+    if (S.perfil && S.perfil.altura) deriva('imc', p / Math.pow(S.perfil.altura / 100, 2));
+  }
+  if (L.magra != null && L.ossea != null) deriva('massaMusc', L.magra - L.ossea);
+  if (L.magra != null && L.massaMusc != null) deriva('ossea', L.magra - L.massaMusc);
+  /* conta que não bate (tolerância: 0,6 ou 3%, o arredondamento da balança): não dá para saber qual dos dois foi mal lido,
+     então os dois ficam marcados para conferir */
+  const marca = k => { if (!out.confira.includes(k)) out.confira.push(k); };
+  const confere = (ks, valor, esp) => { if (Math.abs(valor - esp) > Math.max(0.6, Math.abs(esp) * 0.03)) ks.forEach(marca); };
+  if (L.peso != null) {
+    if (L.gord != null && L.massaGorda != null) confere(['gord', 'massaGorda'], L.massaGorda, L.peso * L.gord / 100);
+    if (L.massaGorda != null && L.magra != null) confere(['massaGorda', 'magra'], L.magra, L.peso - L.massaGorda);
+    if (L.agua != null && L.pesoAgua != null) confere(['agua', 'pesoAgua'], L.pesoAgua, L.peso * L.agua / 100);
+    if (L.prot != null && L.massaProt != null) confere(['prot', 'massaProt'], L.massaProt, L.peso * L.prot / 100);
+  }
+  if (L.magra != null && L.ossea != null && L.massaMusc != null) confere(['magra', 'ossea', 'massaMusc'], L.massaMusc, L.magra - L.ossea);
+  /* segmentos: na figura, coluna da esquerda (L) tem braço e perna; a da direita (R) tem braço, tronco e perna */
+  const LIM_SEG = { g: { be: 15, bd: 15, tr: 60, pe: 25, pd: 25 }, m: { be: 12, bd: 12, tr: 60, pe: 30, pd: 30 } };
+  const secao = (y0, y1, tipo) => {
+    if (y0 == null || y1 == null || y1 <= y0) return null;
+    const lados = { L: [], R: [] };
+    linhas.filter(l => l.y > y0 && l.y < y1 && !/intervalo|membros|tronco|-\s*\d/.test(l.n)).forEach(l => ['L', 'R'].forEach(lado => {
+      const t = l.ws.filter(w => lado === 'L' ? w.x < W / 2 : w.x >= W / 2).map(w => w.t).join(' '); if (!t) return;
+      const ev = lados[lado]; const ult = ev.length ? ev[ev.length - 1][0] : null;
+      let m = t.match(/(\d+(?:[.,]\d+)?)\s*[kh][gq9a]/i); if (m) { ev.push(['kg', m[1]]); return; }
+      /* o % às vezes some: um número logo abaixo de um "kg" é o % dele */
+      m = t.match(/(\d+(?:[.,]\d+)?)\s*%/) || (ult === 'kg' ? t.match(/(\d+(?:[.,]\d+)?)/) : null); if (m) ev.push(['%', m[1]]);
+    }));
+    const pares = l => { const r = []; for (let i = 0; i < l.length; i++) if (l[i][0] === 'kg') { const p = l[i + 1] && l[i + 1][0] === '%' ? l[i + 1][1] : null; r.push([l[i][1], p]); if (p != null) i++; } return r; };
+    const E = pares(lados.L), D = pares(lados.R);
+    if (E.length !== 2 || D.length !== 3) return null;
+    const s = { be: E[0], pe: E[1], bd: D[0], tr: D[1], pd: D[2] };
+    for (const k in s) s[k] = [s[k][0] != null ? ajusta(s[k][0], 0.1, LIM_SEG[tipo][k]) : null, s[k][1] != null ? ajusta(s[k][1], 10, 999) : null];
+    return s;
+  };
+  const yFim = yI || (linhas.find(l => l.k) || {}).y;
+  const g = secao(yG, yM, 'g'), m = secao(yM, yFim, 'm');
+  if (g || m) out.seg = { g: g || {}, m: m || {} };
+  return out;
+}
+/* põe o que foi lido no formulário: lido em verde-limão, calculado tracejado, "não bate" em laranja */
+function preencherBio(el, r) {
+  let n = 0;
+  for (const k in r.campos) {
+    const i = $('[data-b="' + k + '"]', el); if (!i) continue;
+    i.value = r.campos[k]; i.classList.add('lido'); n++;
+    if (r.calc.includes(k)) { i.classList.add('calc'); i.title = 'Calculado pelas contas da balança'; }
+    if (r.confira.includes(k)) i.classList.add('confira');
+  }
+  if (r.seg) {
+    ['g', 'm'].forEach(t => { for (const k in r.seg[t]) [0, 1].forEach(j => { const v = r.seg[t][k][j]; const i = $('[data-s="' + t + '|' + k + '|' + j + '"]', el); if (i && v != null) { i.value = v; i.classList.add('lido'); } }); });
+    const dt = $('#bioSegD', el); if (dt) dt.open = true;
+  }
+  const dd = $('#bioD', el); if (r.d && dd && !dd.disabled) dd.value = r.d;
+  return n;
 }
 /* ---- peso ---- */
 function telaPeso() {
@@ -3025,6 +3224,7 @@ const ACOES = {
   },
   importar: () => $('#arqImport').click(),
   novaBio: () => folhaBio(null),
+  bioImagem: () => { folhaBio(null); const i = $('.fundo #bioArq'); if (i) i.click(); },
   editarBio: b => folhaBio(b.dataset.d),
   bioSel: b => { bioSel = b.dataset.v; render(); },
   togEconomico: () => { S.cfg.economico = !economico(); salvar(); render(); toast(economico() ? 'Dieta econômica ligada: o cardápio passa a usar alimentos baratos.' : 'Dieta econômica desligada.'); },
