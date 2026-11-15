@@ -1,7 +1,7 @@
 /* FORJA · Dieta e Treino — app pessoal (PWA). Dados em localStorage, chave dieta_treino_v1.
    Arquivos: index.html (tela e estilo) · alimentos.js e exercicios.js (tabelas) · app.js (este programa). */
 'use strict';
-const APP_VERSAO = '1.7.1';
+const APP_VERSAO = '1.7.2';
 const KEY = 'dieta_treino_v1';
 const SCHEMA = 3;
 
@@ -2530,7 +2530,9 @@ function folhaBio(d0) {
             const laranja = (r.calc || []).concat(r.suspeitos || []);
             st.innerHTML = '<b>' + n + ' de ' + BIO.length + ' números' + (contaSeg(r) ? ' e ' + contaSeg(r) + ' de 20 dos segmentos' : '') + (r.d ? ', data ' + dataCurta(r.d) : '') + '.</b> Em verde: lidos da imagem. Confira tudo antes de salvar.' +
               (laranja.length ? '<br><b style="color:var(--alerta)">Em laranja, confira com atenção:</b> ' + esc(laranja.map(nome).join(', ')) + ((r.calc || []).length ? ' (' + ((r.calc || []).length > 1 ? 'alguns foram calculados' : 'um foi calculado') + ' pelas contas da balança porque a leitura veio errada ou ilegível)' : '') + '.' : '') +
-              (contaSeg(r) < 20 ? '<br>Os segmentos que ficaram vazios não deram para ler com segurança: digite olhando a imagem.' : '');
+              (contaSeg(r) < 20 ? '<br>Os segmentos que ficaram vazios não deram para ler com segurança: digite olhando a imagem.' : '') +
+              '<details style="margin-top:6px"><summary class="mini">Algum número veio errado? Copie o texto lido</summary><button class="btn peq" id="bioCopiar" style="margin-top:6px">Copiar o texto que o leitor viu</button></details>';
+            const cp = $('#bioCopiar', el); if (cp) cp.onclick = () => { const t = (r.linhas || []).join('\n'); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('Texto copiado. Cole na conversa para ajustar o leitor.')).catch(() => toast('Não consegui copiar neste aparelho.')); };
           }
         } catch (er) {
           console.error(er);
@@ -2685,18 +2687,20 @@ function interpretarBio(words, W, ant) {
   /* ---- índice corporal: rótulo e valor na mesma linha ---- */
   /* [campo, rótulos possíveis (palavras), casas decimais] — o rótulo com mais palavras ganha ("Peso da Água" antes de "Peso") */
   const ROT = [
-    ['ideal', [['peso', 'corporal', 'ideal'], ['peso', 'ideal'], ['ideal']], 1], ['pesoAgua', [['peso', 'agua']], 1], ['massaProt', [['massa', 'proteina']], 1],
+    ['ideal', [['peso', 'corporal', 'ideal'], ['peso', 'ideal'], ['corporal', 'ideal'], ['ideal']], 1], ['pesoAgua', [['peso', 'agua']], 1], ['massaProt', [['massa', 'proteina']], 1],
     ['magra', [['corporal', 'magra'], ['massa', 'magra']], 1], ['massaMusc', [['massa', 'muscular']], 1], ['ossea', [['massa', 'ossea'], ['ossea']], 1],
     ['massaGorda', [['massa', 'gorda']], 1], ['subcut', [['subcutanea']], 1], ['visceral', [['visceral']], [1, 0]], ['gord', [['gordura', 'corporal']], 1],
     ['agua', [['agua', 'corporal']], 1], ['esq', [['esqueletico'], ['musculo', 'esqueletico']], 1], ['musc', [['taxa', 'muscular']], 1], ['prot', [['proteina']], 1],
-    ['tmb', [['tmb'], ['bmr'], ['metabolismo', 'basal'], ['kcal']], 0], ['idadeCorpo', [['idade', 'corpo'], ['idade', 'corporal']], 0], ['imc', [['imc'], ['bmi']], 1], ['peso', [['peso']], [2, 1]]
+    ['tmb', [['tmb'], ['bmr'], ['metabolismo', 'basal'], ['kcal']], 0], ['idadeCorpo', [['idade', 'corpo'], ['idade', 'corporal'], ['idade']], 0], ['imc', [['imc'], ['bmi']], 1], ['peso', [['peso']], [2, 1], ['corporal', 'ideal', 'agua', 'gorda', 'proteina', 'massa']]
   ];
   const cand = {};
   const yIdx0 = (() => { const l = linhas.find(l => l.tok.some(w => parece(w, 'indice'))); return l ? l.y : null; })();
   linhas.forEach(l => {
     let melhor = null;
-    ROT.forEach(([k, alts, dec]) => alts.forEach(toks => {
+    ROT.forEach(([k, alts, dec, nao]) => alts.forEach(toks => {
       const fim = achaRotulo(l, toks); if (fim < 0) return;
+      /* "Peso" sozinho não vale numa linha de "Peso corporal ideal" ou "Peso da água" com o resto borrado */
+      if (nao && l.tok.some((w, i) => i !== fim && w.length >= 4 && nao.some(t => parece(w, t) || (w.length >= 4 && t.startsWith(w.slice(0, 4)))))) return;
       if (!melhor || toks.length > melhor.n) melhor = { k, dec, n: toks.length, fim };
     }));
     if (!melhor || cand[melhor.k]) { l.campo = melhor && cand[melhor.k] ? melhor.k : null; return; }
@@ -2707,7 +2711,7 @@ function interpretarBio(words, W, ant) {
     let nums = numerosDe(l.ws.slice(melhor.fim + 1).map(w => w.t).join(' '));
     if (!nums.length) nums = numerosDe(l.txt);
     const lista = [];
-    nums.forEach((s, i) => candidatos(s, c[5], c[6], melhor.dec).forEach(x => lista.push({ v: x.v, nota: x.nota + i * 0.01 })));
+    nums.forEach((s, i) => candidatos(s, c[5], c[6], melhor.dec).forEach(x => lista.push({ v: x.v, nota: x.nota + i * 0.01, fmt: x.nota >= 3 })));
     if (lista.length) cand[melhor.k] = lista.sort((a, b) => b.nota - a.nota);
   });
   /* rótulo ilegível: a balança mostra os campos sempre na mesma ordem (a da lista BIO).
@@ -2719,13 +2723,16 @@ function interpretarBio(words, W, ant) {
     const ia = antL ? ordem.indexOf(antL.campo) : -1, id = depL ? ordem.indexOf(depL.campo) : -1;
     let k = null;
     if (ia >= 0 && id >= 0 && id - ia === 2) k = ordem[ia + 1]; else if (!antL && id === 1) k = ordem[0];
+    else if (!depL && ia === ordem.length - 2) k = ordem[ordem.length - 1]; /* o último da tela (peso ideal) */
     if (!k || cand[k]) return;
     const c = BIO.find(b => b[0] === k); const dec = (ROT.find(r => r[0] === k) || [0, 0, 1])[2];
-    const lista = []; numerosDe(l.txt).forEach((s, j) => candidatos(s, c[5], c[6], dec).forEach(x => lista.push({ v: x.v, nota: x.nota - 1 + j * 0.01 })));
+    const lista = []; numerosDe(l.txt).forEach((s, j) => candidatos(s, c[5], c[6], dec).forEach(x => lista.push({ v: x.v, nota: x.nota - 1 + j * 0.01, fmt: x.nota >= 3 })));
     if (lista.length) { cand[k] = lista.sort((a, b) => b.nota - a.nota); l.campo = k; }
   });
   for (const k in cand) out.campos[k] = cand[k][0].v;
   out.cand = cand;
+  out.soltos = [];
+  linhas.filter(l => yIdx0 == null || l.y > yIdx0).forEach(l => numerosDe(l.txt).forEach(s => candidatos(s, 30, 300, [2, 1]).forEach(x => out.soltos.push(x.v))));
 
   /* ---- segmentos: coluna da esquerda (L) tem braço e perna; a da direita (R) tem braço, tronco e perna ---- */
   const linhaCom = (alvos, depois) => linhas.find(l => l.y > (depois || -1) && l.tok.some(w => alvos.some(a => parece(w, a))));
@@ -2779,7 +2786,7 @@ function interpretarBio(words, W, ant) {
 function mesclarBio(a, b) {
   if (!b) return a;
   const cand = {};
-  [a, b].forEach((r, ir) => { for (const k in r.cand || {}) r.cand[k].forEach(x => { const l = cand[k] || (cand[k] = []); const e = l.find(y => y.v === x.v); if (e) { e.nota += 2; e.votos++; } else l.push({ v: x.v, nota: x.nota, votos: x.votos || 1 }); }); });
+  [a, b].forEach((r, ir) => { for (const k in r.cand || {}) r.cand[k].forEach(x => { const l = cand[k] || (cand[k] = []); const e = l.find(y => y.v === x.v); if (e) { e.nota += 2; e.votos++; e.fmt = e.fmt || x.fmt; } else l.push({ v: x.v, nota: x.nota, votos: x.votos || 1, fmt: x.fmt }); }); });
   for (const k in cand) cand[k].sort((x, y) => y.nota - x.nota);
   const seg = { g: {}, m: {} };
   ['g', 'm'].forEach(t => ['be', 'bd', 'tr', 'pe', 'pd'].forEach(k => {
@@ -2787,7 +2794,7 @@ function mesclarBio(a, b) {
     seg[t][k] = [0, 1].map(j => pa && pa[j] != null ? pa[j] : pb && pb[j] != null ? pb[j] : null);
   }));
   const temSeg = Object.keys(seg.g).length || Object.keys(seg.m).length;
-  return { cand, campos: {}, seg: temSeg ? seg : null, d: a.d || b.d, linhas: a.linhas, yIdx: a.yIdx || b.yIdx };
+  return { cand, campos: {}, seg: temSeg ? seg : null, d: a.d || b.d, linhas: a.linhas, yIdx: a.yIdx || b.yIdx, soltos: (a.soltos || []).concat(b.soltos || []) };
 }
 /* escolhe o número de cada campo e confere com as contas que a própria balança faz:
    % de gordura × peso = massa gorda; % de água × peso = peso da água; e assim por diante.
@@ -2807,6 +2814,19 @@ function finalizarBio(r, ant) {
     return false;
   };
   const PARES = [['gord', 'massaGorda', 3, 70], ['agua', 'pesoAgua', 35, 75], ['prot', 'massaProt', 8, 25], ['musc', 'massaMusc', 20, 95]];
+  /* o peso é a base de todas as contas: antes de tudo, confere com o que os outros números dizem que ele é */
+  const prevPeso = [];
+  if (C.magra != null && C.massaGorda != null) prevPeso.push(C.magra + C.massaGorda);
+  PARES.forEach(([pc, kg]) => { if (C[pc] && C[kg] != null) prevPeso.push(C[kg] / C[pc] * 100); });
+  if (prevPeso.length >= 2) {
+    prevPeso.sort((a, b) => a - b); const med = prevPeso[Math.floor(prevPeso.length / 2)];
+    const concordam = prevPeso.filter(v => Math.abs(v - med) / med < 0.02).length;
+    if (concordam >= 2 && (C.peso == null || Math.abs(C.peso - med) / med > 0.02)) {
+      const daImg = (cand.peso || []).map(x => x.v).concat(r.soltos || []).filter(v => Math.abs(v - med) / med < 0.012).sort((a, b) => Math.abs(a - med) - Math.abs(b - med))[0];
+      if (daImg != null) { C.peso = daImg; if (!cand.peso || !cand.peso.some(x => x.v === daImg)) sus.push('peso'); }
+      else { C.peso = Math.round(med * 10) / 10; calc.push('peso'); }
+    }
+  }
   if (C.peso) PARES.forEach(([pc, kg, mn, mx]) => {
     const P = C.peso;
     if (C[pc] != null && C[kg] != null) {
@@ -2832,7 +2852,7 @@ function finalizarBio(r, ant) {
     if (top.length > 1 && top.some(x => x.v === C[k])) C[k] = top.sort((a, b) => Math.abs(a.v - ant[k]) - Math.abs(b.v - ant[k]))[0].v;
   }
   /* lido fora do formato da balança (ex.: "38" onde ela mostra "38.3") e só uma leitura concordou: conferir */
-  for (const k in cand) { const x = cand[k].find(y => y.v === C[k]); if (x && x.nota < 3 && (x.votos || 1) < 2 && !calc.includes(k)) sus.push(k); }
+  for (const k in cand) { const x = cand[k].find(y => y.v === C[k]); if (x && !calc.includes(k) && (x.fmt === false || (x.nota < 3 && (x.votos || 1) < 2))) sus.push(k); } /* fora do formato da balança (ex.: inteiro onde ela mostra decimal): conferir */
   r.campos = C; r.calc = calc; r.suspeitos = Array.from(new Set(sus.filter(k => C[k] != null && !calc.includes(k))));
   /* segmentos: o que não faz sentido no corpo fica vazio (melhor digitar do que salvar errado) */
   if (r.seg) ['g', 'm'].forEach(t => {
@@ -2855,6 +2875,8 @@ function finalizarBio(r, ant) {
 /* põe o que foi lido no formulário e destaca os campos para a pessoa conferir */
 function preencherBio(el, r) {
   let n = 0;
+  /* reler uma avaliação já salva: limpa os números antigos para não misturar com a leitura nova */
+  if (r && Object.keys(r.campos || {}).length) $$('[data-b], [data-s]', el).forEach(i => { i.value = ''; i.classList.remove('lido', 'conferir'); });
   const laranja = (r.calc || []).concat(r.suspeitos || []);
   for (const k in r.campos) { const i = $('[data-b="' + k + '"]', el); if (i) { i.value = r.campos[k]; i.classList.add('lido'); if (laranja.includes(k)) i.classList.add('conferir'); n++; } }
   if (r.seg) {
