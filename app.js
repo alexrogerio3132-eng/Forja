@@ -1,7 +1,7 @@
 /* FORJA · Dieta e Treino — app pessoal (PWA). Dados em localStorage, chave dieta_treino_v1.
    Arquivos: index.html (tela e estilo) · alimentos.js e exercicios.js (tabelas) · app.js (este programa). */
 'use strict';
-const APP_VERSAO = '1.6';
+const APP_VERSAO = '1.7';
 const KEY = 'dieta_treino_v1';
 const SCHEMA = 3;
 
@@ -46,8 +46,8 @@ function padrao() {
   return {
     schema: SCHEMA, perfil: null, treino: null, cardio: null,
     dias: {}, sono: [], sonoAberto: null, peso: [], meus: [], favs: [], recentes: [],
-    modelos: [], ultG: {}, plantao: null, plantaoDias: {}, fotos: [], notasCorpo: {}, medidas: [], jejum: null,
-    cfg: { copo: 250, refeicoes: ['cafe', 'almoco', 'lanche2', 'jantar', 'ceia'], evitar: [], ultimoBackup: null, backupAdiado: null, semSal: false }
+    modelos: [], ultG: {}, plantao: null, plantaoDias: {}, fotos: [], notasCorpo: {}, medidas: [], jejum: null, bio: [],
+    cfg: { copo: 250, refeicoes: ['cafe', 'almoco', 'lanche2', 'jantar', 'ceia'], evitar: [], ultimoBackup: null, backupAdiado: null, semSal: false, economico: false }
   };
 }
 /* roda a cada abertura e a cada cópia importada: precisa poder rodar mais de uma vez sem estragar nada */
@@ -490,7 +490,7 @@ function telaHoje() {
   const m = metaDia(dataSel);
   let h = '';
   if (!S.perfil) {
-    h += '<div class="cartao realce"><h2>Bem-vindo à Forja</h2><p class="sub">Comece pelo seu perfil: com peso, altura, idade, rotina e objetivo o app calcula calorias, macros e água. Depois é só seguir a lista do dia aqui embaixo.</p><button class="btn pri bloco" data-acao="editarPerfil">Configurar meu perfil</button>' +
+    h += '<div class="cartao realce"><h2>Bem-vindo à Forja</h2><p class="sub">Comece pelo seu perfil: com peso, altura, idade, rotina e objetivo o app calcula calorias, macros e água. Depois é só seguir a lista do dia aqui embaixo.</p><button class="btn pri bloco" data-acao="editarPerfil">Configurar meu perfil</button><button class="btn bloco" style="margin-top:8px" data-acao="novaBio">Tenho bioimpedância: começar por ela</button>' +
       (Object.keys(S.dias).length ? '' : '<p class="mini" style="margin-top:12px">Já usava a Forja em outro aparelho, navegador ou endereço? Os dados de lá não aparecem aqui sozinhos: lá, vá em Eu › Exportar cópia e aqui importe o arquivo.</p><button class="btn bloco" style="margin-top:6px" data-acao="importar">Importar cópia</button>') + '</div>';
   }
   if (precisaBackup()) {
@@ -714,19 +714,21 @@ function folhaCompras() {
           tem = true; if (it.q) { rapidos++; return; }
           const f = alimento(it.f); if (!f) return;
           const nome = nomeAlim(it.f); const x = soma.get(nome) || { g: 0, grupo: (SIMPLES_DE.get(f.id) || f).grupo || '' };
-          x.g += it.g; soma.set(nome, x);
+          x.g += it.g; x.c = Math.max(x.c || 0, custo(it.f)); soma.set(nome, x);
         });
         if (tem) diasCom++;
       }
       if (!soma.size) { $('#lcL', el).innerHTML = '<div class="vazio">Nada planejado nesses dias. Monte o cardápio da semana primeiro.</div><button class="btn bloco fant" data-op="fechar">Fechar</button>'; return; }
-      const grupos = {}; soma.forEach((x, nome) => { (grupos[x.grupo] = grupos[x.grupo] || []).push([nome, x.g]); });
+      const grupos = {}; soma.forEach((x, nome) => { (grupos[x.grupo] = grupos[x.grupo] || []).push([nome, x.g, x.c]); });
+      let temPreco = false, temCaro = false; soma.forEach(x => { if (x.c) temPreco = true; if (x.c === 3) temCaro = true; });
       const q = g => g >= 1000 ? fmt(g / 1000, 1) + ' kg' : fmt(Math.round(g / 10) * 10) + ' g';
       texto = 'Lista de compras (' + n + ' dias)\n';
       let h = '<div class="mini" style="margin-bottom:8px">' + diasCom + ' de ' + n + ' dias com refeições' + (rapidos ? ' · ' + rapidos + ' registro(s) “só calorias” não entram' : '') + '</div>';
       Object.keys(grupos).sort().forEach(g => {
-        h += '<h3 style="margin:10px 0 2px">' + esc(g || 'Outros') + '</h3><ul class="lista">' + grupos[g].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR')).map(([nome, gr]) => '<li><div class="txt"><div class="t">' + esc(nome) + '</div></div><div class="val">' + q(gr) + '</div></li>').join('') + '</ul>';
+        h += '<h3 style="margin:10px 0 2px">' + esc(g || 'Outros') + '</h3><ul class="lista">' + grupos[g].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR')).map(([nome, gr, c]) => '<li><div class="txt"><div class="t">' + esc(nome) + (c ? ' <span class="mini" style="color:' + (c === 3 ? 'var(--alerta)' : 'var(--txt3)') + '">' + '$'.repeat(c) + '</span>' : '') + '</div></div><div class="val">' + q(gr) + '</div></li>').join('') + '</ul>';
         texto += '\n' + (g || 'Outros') + '\n' + grupos[g].map(([nome, gr]) => '• ' + nome + ': ' + q(gr)).join('\n') + '\n';
       });
+      if (temPreco) h += '<p class="mini" style="margin-top:10px">$ barato · $$ médio · $$$ caro (estimativa de preço).' + (temCaro && !economico() ? ' <b>Ficou caro?</b> Em Dieta › Cardápio pelos macros, ligue <b>💰 Econômico</b> e gere de novo.' : '') + '</p>';
       h += '<p class="mini" style="margin-top:10px">Os pesos são do alimento pronto. Arroz, feijão e macarrão crus pesam mais ou menos um terço disso.</p><div class="grade2" style="margin-top:10px"><button class="btn" data-op="fechar">Fechar</button><button class="btn pri" data-op="copiar">Copiar / enviar</button></div>';
       $('#lcL', el).innerHTML = h;
     };
@@ -1076,7 +1078,48 @@ const LISTAS_ESTILO = {
 function estiloAtual() { return (S.perfil && ESTILOS[S.perfil.estilo]) ? S.perfil.estilo : 'padrao'; }
 /* 1.6: alguns códigos da tabela foram juntados (c/ sal + s/ sal); troca pelos que ficaram */
 Object.values(GER).forEach(l => l.forEach(x => { x[0] = ALIAS[x[0]] || x[0]; }));
-const COMUNS = new Set([].concat(...Object.values(GER)).map(x => x[0]));
+/* 1.6: dieta econômica. Faixa de preço aproximada (preço comum de supermercado no Brasil, pelo que a porção entrega):
+   1 = barato, 2 = médio, 3 = caro. O cardápio troca o caro pelo barato e a lista de compras mostra a faixa. */
+const GER_ECON = {
+  /* só carnes baratas e magras: sardinha, carne moída e sobrecoxa têm o dobro de gordura e, nas porções que a proteína pede, passam das calorias */
+  protPrincipal: [['C0843F', 'Coxa de frango cozida (sem pele)', 80, 260], ['C0751F', 'Fígado bovino grelhado', 80, 200], ['C0670F', 'Músculo bovino cozido', 80, 220]],
+  carbPrincipal: [['C0117B', 'Batata cozida', 100, 500], ['C0143A', 'Polenta (fubá cozido)', 100, 400]],
+  verdura: [['C0033B', 'Repolho cru', 50], ['C0154B', 'Chuchu cozido', 80]],
+  gordura: [['C0030D', 'Óleo de soja', 3, 20, 1]]
+};
+/* o caro → o barato que faz o mesmo papel na refeição */
+const TROCA_ECON = {
+  C0002D: ['C0030D', 'Óleo de soja', 3, 20, 1],
+  /* amendoim tem proteína: com porção grande o cálculo o usa para bater a proteína e as calorias passam da meta */
+  C0003U: ['C0021T', 'Amendoim torrado', 5, 15],
+  C0009U: ['C0021T', 'Amendoim torrado', 5, 15],
+  C0021T: ['C0021T', 'Amendoim torrado', 5, 15],
+  C0045F: ['C0670F', 'Músculo bovino cozido', 80, 220],
+  C0486E: ['C0843F', 'Coxa de frango cozida (sem pele)', 80, 260],
+  C0460F: ['C0115F', 'Sobrecoxa assada c/ pele', 80, 260],
+  C0297F: ['C0650F', 'Acém cozido', 80, 240],
+  C0006G: ['C0010G', 'Creme de leite', 15, 60]
+};
+const CUSTO_BASE = {
+  C0997F: 1, C0194F: 1, C0045F: 3, C0486E: 3, C0039E: 2, C0010J: 1, C0022G: 2, C0052G: 2, C0036G: 1, C0004J: 1,
+  C0018A: 1, C0016A: 1, C0042B: 1, C0053B: 1, C0834A: 1, C0002A: 1, C0155A: 2, C0024A: 1, C0906B: 1, C0190A: 1,
+  C0001T: 1, C0008T: 1, C0011C: 1, C0023C: 2, C0044C: 2, C0020C: 1, C0009B: 1, C0035B: 1, C0643B: 2, C0509B: 1,
+  C0002D: 3, C0001C: 2, C0003U: 3, C0021T: 1, C0290T: 2, C0029C: 3, C0115F: 1, C0460F: 3, C0297F: 3, C0461E: 1,
+  C0015J: 1, C0059G: 2, C0048G: 2, C0064G: 2, C0006D: 2, C0009U: 3, C0006G: 3, C0010G: 2, C0013C: 2,
+  C0116B: 2, C0152B: 1, C0073B: 2, C0061B: 1, C0030B: 1,
+  C0956F: 1, C0843F: 1, C0245F: 1, C0751F: 1, C0071E: 1, C0670F: 1, C0117B: 1, C0143A: 1, C0033B: 1, C0154B: 1, C0030D: 1, C0650F: 2
+};
+Object.values(GER_ECON).forEach(l => l.forEach(x => { x[0] = ALIAS[x[0]] || x[0]; }));
+const TROCA = {}; for (const k in TROCA_ECON) { const v = TROCA_ECON[k].slice(); v[0] = ALIAS[v[0]] || v[0]; TROCA[ALIAS[k] || k] = v; }
+const CUSTO = {}; for (const k in CUSTO_BASE) CUSTO[ALIAS[k] || k] = CUSTO_BASE[k];
+function custo(id) { return CUSTO[ALIAS[id] || id] || 0; } /* 0 = sem faixa conhecida */
+function economico() { return !!S.cfg.economico; }
+/* as listas do cardápio; no modo econômico ganham as opções baratas (no fim, para os índices continuarem valendo) */
+function listasGer() {
+  if (!economico()) return GER;
+  const o = {}; for (const k in GER) o[k] = GER[k].concat(GER_ECON[k] || []); return o;
+}
+const COMUNS = new Set([].concat(...Object.values(GER), ...Object.values(GER_ECON)).map(x => x[0]));
 const PARTE_REF = { cafe: 0.22, lanche1: 0.10, almoco: 0.30, lanche2: 0.13, jantar: 0.25, ceia: 0.08 };
 function sortear(l) { return l[Math.floor(Math.random() * l.length)]; }
 /* resolve gramas de 3 itens (proteína, carbo, gordura) para bater P/C/G-alvo da refeição, com limites */
@@ -1107,10 +1150,10 @@ function resolver3(itens, alvo) {
 function itemVar(def) { return { f: def[0], var: true, min: def[2], max: def[3], passo: def[4] || (def[3] <= 40 ? 1 : 5) }; }
 function itemFixo(def, g) { return { f: def[0], g: g || def[2] }; }
 function montarRefeicaoEstilo(k, alvo, est) {
-  const G = GER, itens = [];
+  const G = listasGer(), itens = [];
   const V = (l, r) => { const x = sortearPref(l, r); if (x) itens.push(itemVar(x)); };
   const F = (l, g) => { const x = sortearPref(l); if (x) itens.push(itemFixo(x, g)); };
-  const verd = n => { const ev = S.cfg.evitar || []; G.verdKeto.filter(x => !ev.includes(x[0])).sort(() => Math.random() - 0.5).slice(0, n).forEach(x => itens.push(itemFixo(x))); };
+  const verd = n => { const ev = S.cfg.evitar || []; G.verdKeto.filter(x => !ev.includes(x[0]) && (!economico() || custo(x[0]) <= 1)).sort(() => Math.random() - 0.5).slice(0, n).forEach(x => itens.push(itemFixo(x))); };
   const principal = k === 'almoco' || k === 'jantar';
   const ovos = G.ovoQueijo.slice(0, 2), queijos = G.ovoQueijo.slice(2);
   if (est === 'nocarb') {
@@ -1134,13 +1177,21 @@ function sortearPref(lista, reserva) {
   let l = lista.filter(x => !evitar.includes(x[0]));
   if (!l.length && reserva) l = reserva.filter(x => !evitar.includes(x[0]));
   if (!l.length) return null;
+  /* econômico: troca o caro pelo equivalente barato e fica com a faixa mais barata que sobrar */
+  if (economico()) {
+    const vistos = new Set();
+    const trocada = l.map(x => TROCA[x[0]] || x).filter(x => !evitar.includes(x[0]) && !vistos.has(x[0]) && vistos.add(x[0]));
+    if (trocada.length) l = trocada; /* se o barato está entre os evitados, fica com o original */
+    const b1 = l.filter(x => custo(x[0]) === 1), b2 = l.filter(x => custo(x[0]) && custo(x[0]) <= 2);
+    l = b1.length ? b1 : (b2.length ? b2 : l);
+  }
   const favs = l.filter(x => S.favs.includes(x[0]) || (SIMPLES_DE.get(x[0]) && SIMPLES_DE.get(x[0]).ids.some(id => S.favs.includes(id))));
   return favs.length && Math.random() < 0.7 ? sortear(favs) : sortear(l);
 }
 function montarRefeicao(k, alvo) {
   const est = estiloAtual();
   if (est !== 'padrao') return montarRefeicaoEstilo(k, alvo, est);
-  const G = GER, itens = [];
+  const G = listasGer(), itens = [];
   const V = (l, r) => { const x = sortearPref(l, r); if (x) itens.push(itemVar(x)); };
   const F = (l, r) => { const x = sortearPref(l, r); if (x) itens.push(itemFixo(x)); };
   const leve = [G.protLeve[0], G.protLeve[2], G.protLeve[1], G.protLeve[3]];
@@ -1150,7 +1201,7 @@ function montarRefeicao(k, alvo) {
     V([G.gordura[0]], G.gordura);
     if (k === 'almoco') F(G.feijao);
     const ev = S.cfg.evitar || [];
-    G.verdura.filter(x => !ev.includes(x[0])).sort(() => Math.random() - 0.5).slice(0, 2).forEach(x => itens.push(itemFixo(x)));
+    G.verdura.filter(x => !ev.includes(x[0]) && (!economico() || custo(x[0]) <= 1)).sort(() => Math.random() - 0.5).slice(0, 2).forEach(x => itens.push(itemFixo(x)));
   } else if (k === 'cafe') {
     V([G.protLeve[0], G.protLeve[2], G.protLeve[1]], leve); V(G.carbCafe); F(G.fruta); V([G.gordura[1], G.gordura[4], G.gordura[2]], G.gordura);
   } else if (k === 'ceia') {
@@ -1189,15 +1240,15 @@ function gerarCardapio(m) {
 function folhaCardapio() {
   const m = metaDia(dataSel); if (!m) { toast('Configure o perfil primeiro (aba Eu).'); return; }
   let plano = gerarCardapio(m);
-  const todosGer = []; const vistos = new Set();
-  LISTAS_ESTILO[estiloAtual()].forEach(nm => GER[nm].forEach(x => { if (!vistos.has(x[0])) { vistos.add(x[0]); todosGer.push(x); } }));
+  const listaPrefs = () => { const l = [], vistos = new Set(), G = listasGer(); LISTAS_ESTILO[estiloAtual()].forEach(nm => G[nm].forEach(x => { if (!vistos.has(x[0])) { vistos.add(x[0]); l.push(x); } })); return l; };
   const fl = abrirFolha('<h2>Cardápio pelos macros</h2><p class="mini" style="margin:4px 0 10px">Montado com alimentos comuns da TBCA' + (m.estilo !== 'padrao' ? ' no estilo <b>' + ESTILOS[m.estilo].nome.toLowerCase() + '</b>' : '') + ' e quantidades calculadas para bater sua meta' + (m.plantao ? ' <b>de dia de plantão</b>' : '') + '. Gere outro até gostar; depois ajuste as gramas na dieta.</p>' +
+    '<div class="chips" style="margin-bottom:6px"><button class="chip" id="cardEcon">💰 Econômico</button></div><p class="mini" id="cardEconT" style="margin:0 0 10px"></p>' +
     '<details style="margin-bottom:10px"><summary>Preferências · <span id="cardEvN"></span></summary><p class="mini" style="margin:6px 0">Toque para <b>evitar</b> um alimento. Seus ★ favoritos aparecem com mais frequência.</p><div class="chips" id="cardEv"></div></details>' +
     '<div id="cardBody"></div><div class="grade2" style="margin-top:12px"><button class="btn" id="cardOutro">Gerar outro</button><button class="btn pri" id="cardUsar">Usar neste dia</button></div>' +
     '<button class="btn bloco" style="margin-top:8px" id="cardSemana">Usar nos próximos 7 dias (um cardápio diferente por dia)</button>', el => {
     const prefs = () => {
       const ev = S.cfg.evitar || [];
-      $('#cardEv', el).innerHTML = todosGer.map(x => '<button class="chip' + (ev.includes(x[0]) ? ' riscado' : '') + '" data-ev="' + x[0] + '">' + (S.favs.includes(x[0]) ? '★ ' : '') + esc(x[1]) + '</button>').join('');
+      $('#cardEv', el).innerHTML = listaPrefs().map(x => '<button class="chip' + (ev.includes(x[0]) ? ' riscado' : '') + '" data-ev="' + x[0] + '">' + (S.favs.includes(x[0]) ? '★ ' : '') + esc(x[1]) + '</button>').join('');
       $('#cardEvN', el).textContent = ev.length ? ev.length + ' evitado(s)' : 'nenhum alimento evitado';
     };
     const desenhar = () => {
@@ -1210,7 +1261,9 @@ function folhaCardapio() {
       h = '<div class="grade4" style="margin-bottom:10px">' + [['kcal', t.kcal, m.kcal], ['Prot', t.p, m.prot], ['Carb', t.c, m.carb], ['Gord', t.g, m.gord]].map(x => '<div class="cartao" style="padding:8px;margin:0;text-align:center"><div class="num" style="font-size:19px">' + fmt(x[1]) + '</div><div class="mini">' + x[0] + ' · meta ' + fmt(x[2]) + '</div></div>').join('') + '</div>' + h;
       $('#cardBody', el).innerHTML = h;
     };
-    prefs(); desenhar();
+    const econ = () => { $('#cardEcon', el).classList.toggle('on', economico()); $('#cardEconT', el).textContent = economico() ? 'Ligado: troca os itens caros por frango, ovo, fígado, músculo, arroz, feijão, batata, banana e óleo de soja, sem sair da meta.' : 'Achou caro? Ligue para o cardápio usar alimentos baratos.'; };
+    prefs(); desenhar(); econ();
+    $('#cardEcon', el).onclick = () => { S.cfg.economico = !economico(); salvar(); econ(); plano = gerarCardapio(m); prefs(); desenhar(); };
     $('#cardEv', el).onclick = e => {
       const b = e.target.closest('[data-ev]'); if (!b) return; const id = b.dataset.ev; const ev = S.cfg.evitar || (S.cfg.evitar = []);
       const i = ev.indexOf(id); if (i >= 0) ev.splice(i, 1); else ev.push(id); salvar(); prefs(); plano = gerarCardapio(m); desenhar();
@@ -1942,7 +1995,7 @@ function telaEu() {
   let h = '<div class="cartao"><div class="cab"><h2>Perfil</h2><div class="dir"><button class="btn peq ' + (p ? '' : 'pri') + '" data-acao="editarPerfil">' + (p ? 'Editar' : 'Configurar') + '</button></div></div>';
   if (p) h += '<div class="sub">' + (p.sexo === 'M' ? 'Homem' : 'Mulher') + ' · ' + p.idade + ' anos · ' + p.altura + ' cm · ' + fmt(pesoAtual(), 1) + ' kg' + (p.bf ? ' · ' + p.bf + '% gordura' : '') + '<br>' + ROTINAS[p.rotina][0] + ' · ' + OBJETIVOS[p.objetivo] + (p.objetivo !== 'manter' ? ' (' + RITMOS[p.ritmo].toLowerCase() + ')' : '') + '</div>';
   else h += '<p class="sub">Preencha para o app calcular suas metas.</p>';
-  h += '</div>';
+  h += '<button class="btn bloco" style="margin-top:10px" data-acao="novaBio">' + (S.bio.length ? 'Nova bioimpedância · última em ' + dataCurta(bioOrdenada().pop().d) : 'Preencher pela bioimpedância') + '</button></div>';
   if (m) {
     const pc = x => Math.round(x / m.kcal * 100);
     const sug = sugestaoAjuste();
@@ -1963,6 +2016,7 @@ function telaEu() {
     op += linha('editarEstilo', 'Estilo de dieta', esc(ESTILOS[m.estilo].nome) + (J ? ' + jejum ' + esc(J.tipo) : '') + ' · C ' + m.carb + ' g · P ' + m.prot + ' g · G ' + m.gord + ' g');
     op += linha('gastoReal', 'Gasto real (pelos seus registros)', p.usarReal ? (r ? 'Ligado: ' + fmt(r.kcal) + ' kcal/dia' : 'Ligado, esperando mais dados') : (r ? 'Pronto: ' + fmt(r.kcal) + ' kcal/dia · toque para usar' : 'Ainda calculando: precisa de ~2 semanas de registros'));
     op += linha('metasManuais', 'Metas do nutricionista', m.manual ? 'Ligadas: o app usa os números que você digitou' : 'Desligadas: metas calculadas pelo perfil');
+    op += linha('togEconomico', 'Dieta econômica', economico() ? 'Ligada: o cardápio usa alimentos baratos' : 'Desligada · ligue se o cardápio sugerido ficar caro');
   }
   op += linha('editarPlantao', 'Escala de plantão', P ? esc(ESCALAS[P.tipo][0]) + ' · próximos: ' + (prox.length ? prox.map(x => rotuloDia(x)).join(', ') : 'nenhum em 14 dias') : 'Não uso (12x36, 24x48…)');
   h += '<div class="cartao"><div class="cab"><h2>Opções</h2></div><ul class="lista">' + op + '</ul></div>';
@@ -1974,6 +2028,7 @@ function telaEu() {
     (temCopiaAntes() ? '<button class="btn bloco" style="margin-top:8px" data-acao="baixarAntes">Baixar cópia de antes da versão 1.6</button><p class="mini" style="margin-top:4px">Os seus dados como estavam antes desta atualização. Só serve se precisar voltar para a versão anterior do app (lá, use Importar cópia).</p>' : '') +
     '<button class="btn perigo bloco" style="margin-top:8px" data-acao="apagarTudo">Apagar todos os dados</button></div>';
   h += '<div class="cartao"><details><summary>Fontes e créditos</summary><div class="mini" style="margin-top:6px;line-height:1.6">Alimentos: TBCA — Tabela Brasileira de Composição de Alimentos (USP/FoRC), ' + FOODS.size.toLocaleString('pt-BR') + ' itens, valores por 100 g (os preparos "com sal" e "sem sal" com as mesmas calorias viraram um item só; o sódio segue a opção "Cozinho sem sal").<br>Exercícios: Free Exercise DB (domínio público), ' + EXS.size + ' exercícios, nomes traduzidos.<br>Gasto calórico: Compendium of Physical Activities 2024 (MET).<br>Metabolismo: Mifflin-St Jeor / Katch-McArdle. FC máx: Tanaka. 1RM: Epley. Gasto real: média ingerida − variação de peso × 7.700 kcal/kg.<br>Medidas caseiras: valores aproximados, confira com balança quando puder.<br>As metas são estimativas e não substituem nutricionista ou médico.<br>Versão ' + APP_VERSAO + '</div></details></div>';
+  h += '<p class="mini" style="text-align:center;margin:4px 0 14px">Forja · versão ' + APP_VERSAO + '</p>';
   return h;
 }
 /* gasto real numa folha (antes era um cartão fixo em Eu) */
@@ -2048,10 +2103,10 @@ function folhaPlantao() {
       };
     });
 }
-function folhaPerfil() {
-  const p = S.perfil || { sexo: 'M', idade: 30, altura: 175, peso: 80, bf: null, rotina: 'sentado', objetivo: 'perder', ritmo: 'moderado' };
+function folhaPerfil(pre, daBio) {
+  const p = S.perfil || Object.assign({ sexo: 'M', idade: 30, altura: 175, peso: 80, bf: null, rotina: 'sentado', objetivo: 'perder', ritmo: 'moderado' }, pre || {});
   const sel = (id, obj, v) => '<select id="' + id + '">' + Object.keys(obj).map(k => '<option value="' + k + '"' + (k === v ? ' selected' : '') + '>' + (Array.isArray(obj[k]) ? obj[k][0] : obj[k]) + '</option>').join('') + '</select>';
-  const fl = abrirFolha('<h2 style="margin-bottom:10px">Meu perfil</h2><div class="grade2"><label class="campo"><span>Sexo</span><select id="pfSexo"><option value="M"' + (p.sexo === 'M' ? ' selected' : '') + '>Masculino</option><option value="F"' + (p.sexo === 'F' ? ' selected' : '') + '>Feminino</option></select></label><label class="campo"><span>Idade</span><input type="number" inputmode="numeric" id="pfIdade" value="' + p.idade + '"></label><label class="campo"><span>Altura (cm)</span><input type="number" inputmode="numeric" id="pfAlt" value="' + p.altura + '"></label><label class="campo"><span>Peso (kg)</span><input type="number" inputmode="decimal" step="0.1" id="pfPeso" value="' + (pesoAtual() || p.peso) + '"></label></div>' +
+  const fl = abrirFolha('<h2 style="margin-bottom:10px">Meu perfil</h2>' + (daBio ? '<div class="info" style="margin:0 0 10px">Peso e % de gordura vieram da bioimpedância. A <b>altura foi calculada pelo IMC</b> e pode errar 1 ou 2 cm: troque pela sua altura real. Depois complete sexo, idade, rotina e objetivo e salve.</div>' : '') + '<div class="grade2"><label class="campo"><span>Sexo</span><select id="pfSexo"><option value="M"' + (p.sexo === 'M' ? ' selected' : '') + '>Masculino</option><option value="F"' + (p.sexo === 'F' ? ' selected' : '') + '>Feminino</option></select></label><label class="campo"><span>Idade</span><input type="number" inputmode="numeric" id="pfIdade" value="' + p.idade + '"></label><label class="campo"><span>Altura (cm)</span><input type="number" inputmode="numeric" id="pfAlt" value="' + p.altura + '"></label><label class="campo"><span>Peso (kg)</span><input type="number" inputmode="decimal" step="0.1" id="pfPeso" value="' + (pesoAtual() || p.peso) + '"></label></div>' +
     '<label class="campo"><span>% de gordura (opcional, de bioimpedância ou dobras)</span><input type="number" inputmode="decimal" id="pfBf" value="' + (p.bf || '') + '" placeholder="Deixe vazio se não souber"></label>' +
     '<label class="campo"><span>Rotina de trabalho</span>' + sel('pfRot', ROTINAS, p.rotina) + '</label><div class="grade2"><label class="campo"><span>Objetivo</span>' + sel('pfObj', OBJETIVOS, p.objetivo) + '</label><label class="campo"><span>Ritmo</span>' + sel('pfRit', RITMOS, p.ritmo) + '</label></div>' +
     '<details style="margin-bottom:12px"><summary>Avançado: proteína e gordura por kg</summary><div class="grade2" style="margin-top:8px"><label class="campo"><span>Proteína (g/kg)</span><input type="number" inputmode="decimal" step="0.1" id="pfPk" value="' + (p.protKg || '') + '" placeholder="automático (1,8–2,0)"></label><label class="campo"><span>Gordura (g/kg)</span><input type="number" inputmode="decimal" step="0.1" id="pfGk" value="' + (p.gordKg || '') + '" placeholder="automático (0,8–0,9)"></label></div></details>' +
@@ -2160,10 +2215,11 @@ function diasDesdeFoto() { if (!S.fotos.length) return null; const u = S.fotos.m
 
 /* ===================== PROGRESSO: semana, peso, medidas, fotos, cargas, sono e água ===================== */
 function telaProgresso() {
-  const sub = [['semana', 'Semana'], ['peso', 'Peso'], ['medidas', 'Medidas'], ['fotos', 'Fotos'], ['cargas', 'Cargas'], ['sono', 'Sono e água']];
+  const sub = [['semana', 'Semana'], ['peso', 'Peso'], ['bio', 'Bioimpedância'], ['medidas', 'Medidas'], ['fotos', 'Fotos'], ['cargas', 'Cargas'], ['sono', 'Sono e água']];
   if (!sub.some(x => x[0] === subProg)) subProg = 'semana';
   const h = '<div class="rolax" style="margin-bottom:12px">' + sub.map(([k, t]) => '<button class="chip ' + (subProg === k ? 'on' : '') + '" data-acao="subProg" data-v="' + k + '">' + t + '</button>').join('') + '</div>';
   if (subProg === 'peso') return h + telaPeso();
+  if (subProg === 'bio') return h + telaBio();
   if (subProg === 'medidas') return h + telaMedidas();
   if (subProg === 'fotos') return h + telaFotos();
   if (subProg === 'cargas') return h + telaEvolucao();
@@ -2384,6 +2440,111 @@ function folhaMedidas(d0) {
       };
     });
 }
+/* ---- bioimpedância: os números da balança; atualizam peso, % de gordura e o perfil ---- */
+/* [chave, nome, unidade, melhor (-1 menor, 1 maior, 0 tanto faz), principal, mínimo, máximo], na ordem da tela da balança */
+const BIO = [
+  ['peso', 'Peso', 'kg', 0, 1, 30, 300], ['imc', 'IMC', '', -1, 1, 10, 80], ['gord', 'Gordura corporal', '%', -1, 1, 3, 75],
+  ['musc', 'Taxa muscular', '%', 1, 0, 10, 95], ['magra', 'Massa corporal magra', 'kg', 1, 1, 20, 160], ['subcut', 'Gordura subcutânea', '%', -1, 0, 1, 70],
+  ['visceral', 'Gordura visceral', '', -1, 1, 1, 60], ['agua', 'Água corporal', '%', 1, 0, 20, 80], ['esq', 'Músculo esquelético', '%', 1, 0, 10, 75],
+  ['massaMusc', 'Massa muscular', 'kg', 1, 1, 15, 160], ['ossea', 'Massa óssea', 'kg', 0, 0, 1, 10], ['prot', 'Proteína', '%', 1, 0, 5, 30],
+  ['tmb', 'TMB (metabolismo basal)', 'kcal', 0, 0, 700, 4500], ['idadeCorpo', 'Idade do corpo', 'anos', -1, 0, 10, 110], ['massaGorda', 'Massa gorda', 'kg', -1, 0, 1, 200],
+  ['pesoAgua', 'Peso da água', 'kg', 0, 0, 10, 160], ['massaProt', 'Massa de proteína', 'kg', 1, 0, 2, 45], ['ideal', 'Peso corporal ideal', 'kg', 0, 0, 30, 200]
+];
+/* esquerdo/direito como a balança marca (L e R), sem reinterpretar a figura */
+const SEGS = [['be', 'Braço esq. (L)'], ['bd', 'Braço dir. (R)'], ['tr', 'Tronco'], ['pe', 'Perna esq. (L)'], ['pd', 'Perna dir. (R)']];
+let bioSel = 'gord';
+const fmtN = v => (v == null || isNaN(v)) ? '–' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+function bioOrdenada() { return S.bio.slice().sort((a, b) => a.d < b.d ? -1 : 1); }
+/* faixas gerais de adultos (a da balança pode ser um pouco diferente) */
+function faixaBio(k, v) {
+  if (v == null) return null; const F = S.perfil && S.perfil.sexo === 'F';
+  if (k === 'imc') return v < 18.5 ? ['abaixo', 'alerta'] : v < 25 ? ['normal', 'ok'] : v < 30 ? ['sobrepeso', 'alerta'] : ['obesidade', 'erro'];
+  /* gordura: faixas de Gallagher (2000) por sexo e idade do perfil: 20–39, 40–59 e 60+ anos */
+  if (k === 'gord') { const id = S.perfil ? S.perfil.idade : 30; const [a, b, c] = F ? (id < 40 ? [21, 33, 39] : id < 60 ? [23, 34, 40] : [24, 36, 42]) : (id < 40 ? [8, 20, 25] : id < 60 ? [11, 22, 28] : [13, 25, 30]); return v < a ? ['baixa', 'alerta'] : v < b ? ['normal', 'ok'] : v < c ? ['alta', 'alerta'] : ['muito alta', 'erro']; }
+  if (k === 'visceral') return v < 10 ? ['normal', 'ok'] : v < 15 ? ['alta', 'alerta'] : ['muito alta', 'erro'];
+  if (k === 'agua') { const [a, b] = F ? [45, 60] : [50, 65]; return v < a ? ['baixa', 'alerta'] : v <= b ? ['normal', 'ok'] : ['alta', 'alerta']; }
+  return null;
+}
+function tileBio(c, x, ant) {
+  const v = x[c[0]]; if (v == null) return '';
+  const fx = faixaBio(c[0], v); const dv = ant && ant[c[0]] != null ? v - ant[c[0]] : null;
+  const bom = dv == null || c[3] === 0 || Math.abs(dv) < 0.05 ? null : Math.sign(dv) === c[3];
+  return '<div class="tile' + (c[0] === bioSel ? ' sel' : '') + '" data-acao="bioSel" data-v="' + c[0] + '"><div class="mini">' + c[1] + '</div><div class="num" style="font-size:20px">' + fmtN(v) + (c[2] ? ' <span class="mini">' + c[2] + '</span>' : '') + '</div>' +
+    (fx ? '<div class="mini" style="color:var(--' + fx[1] + ')">' + fx[0] + '</div>' : '') +
+    (dv != null ? '<div class="mini" style="color:' + (bom === null ? 'var(--txt3)' : bom ? 'var(--ok)' : 'var(--alerta)') + '">' + (dv > 0 ? '+' : '') + fmtN(Math.round(dv * 10) / 10) + ' desde ' + dataCurta(ant.d) + '</div>' : '') + '</div>';
+}
+function cartaoSegmentos(sg) {
+  const cel = (par, faixa) => {
+    if (!par || (par[0] == null && par[1] == null)) return '<td>–</td>';
+    const p = par[1]; const fora = p != null && (p < faixa[0] || p > faixa[1]);
+    return '<td>' + (par[0] != null ? fmtN(par[0]) + ' kg' : '') + (p != null ? '<div class="mini" style="color:' + (fora ? 'var(--alerta)' : 'var(--ok)') + '">' + fmtN(p) + '%' + (fora ? (p > faixa[1] ? ' alto' : ' baixo') : '') + '</div>' : '') + '</td>';
+  };
+  return '<div class="cartao"><div class="cab"><h3>Por segmento</h3></div><div class="rel"><table><thead><tr><th>Parte</th><th>Gordura</th><th>Músculo</th></tr></thead><tbody>' +
+    SEGS.map(([k, n]) => '<tr><td>' + n + '</td>' + cel(sg.g && sg.g[k], [80, 160]) + cel(sg.m && sg.m[k], [80, 115]) + '</tr>').join('') +
+    '</tbody></table></div><p class="mini" style="margin-top:6px">O % compara com o padrão da balança para o seu corpo: gordura entre 80% e 160% e músculo entre 80% e 115% são o normal.</p></div>';
+}
+function telaBio() {
+  const l = bioOrdenada();
+  if (!l.length) return '<div class="cartao realce"><h2>Bioimpedância</h2><p class="sub">Copie para cá os números da sua balança de bioimpedância. O app atualiza o seu peso e o seu % de gordura no perfil, recalcula as metas com a sua massa magra e mostra a evolução a cada avaliação.</p><button class="btn pri bloco" data-acao="novaBio">+ Registrar bioimpedância</button></div>';
+  const x = l[l.length - 1], ant = l.length > 1 ? l[l.length - 2] : null;
+  let h = '<div class="cartao"><div class="cab"><h2>Última avaliação</h2><span class="mini">' + dataCurta(x.d) + '</span><div class="dir"><button class="ic" data-acao="editarBio" data-d="' + x.d + '" aria-label="Editar">' + IC.editar + '</button><button class="btn peq pri" data-acao="novaBio">+ Nova</button></div></div>';
+  h += '<div class="grade2 tiles">' + BIO.filter(c => c[4]).map(c => tileBio(c, x, ant)).join('') + '</div>';
+  const m = calcMetas();
+  if (m) h += '<div class="info" style="margin:10px 0 0">Metabolismo basal: ' + (x.tmb ? 'balança <b>' + fmt(x.tmb) + ' kcal</b> · ' : '') + 'app <b>' + fmt(m.tmb) + ' kcal</b>' + (S.perfil.bf ? ', calculado com a sua massa magra' : '') + '. As metas usam o peso e o % de gordura mais recentes.</div>';
+  const resto = BIO.filter(c => !c[4] && x[c[0]] != null);
+  if (resto.length) h += '<details style="margin-top:10px"><summary>Os outros números da balança (' + resto.length + ')</summary><div class="grade2 tiles" style="margin-top:8px">' + resto.map(c => tileBio(c, x, ant)).join('') + '</div></details>';
+  h += '</div>';
+  if (x.seg) h += cartaoSegmentos(x.seg);
+  const c = BIO.find(y => y[0] === bioSel) || BIO[2];
+  const serie = l.filter(y => y[c[0]] != null).map(y => ({ d: y.d, v: y[c[0]] }));
+  h += '<div class="cartao"><div class="cab"><h3>Evolução · ' + c[1] + '</h3></div><div class="mini" style="margin-bottom:4px">Toque num quadro acima para trocar o gráfico.</div>' + grafSerie(serie, c[2]) + '</div>';
+  h += '<div class="cartao"><div class="cab"><h3>Avaliações</h3></div><ul class="lista">' + l.slice().reverse().map(y => '<li data-acao="editarBio" data-d="' + y.d + '"><div class="txt"><div class="t">' + dataCurta(y.d) + '</div><div class="mini">' + [y.peso != null ? fmtN(y.peso) + ' kg' : '', y.gord != null ? fmtN(y.gord) + '% de gordura' : '', y.visceral != null ? 'visceral ' + fmtN(y.visceral) : ''].filter(Boolean).join(' · ') + '</div></div><span class="seta">' + IC.editar + '</span></li>').join('') + '</ul>' +
+    '<p class="mini" style="margin-top:8px">As cores são referências gerais pela idade e pelo sexo do perfil, não um diagnóstico; a da sua balança pode ser um pouco diferente. Para comparar uma avaliação com a outra, meça sempre no mesmo horário, em jejum, de bexiga vazia e sem ter treinado.</p></div>';
+  return h;
+}
+function folhaBio(d0) {
+  const d = d0 || hojeISO(); const ex = S.bio.find(x => x.d === d) || {};
+  const ant = bioOrdenada().filter(x => x.d < d).pop() || {};
+  const campo = c => '<label class="campo"><span>' + c[1] + (c[2] ? ' (' + c[2] + ')' : '') + '</span><input type="number" inputmode="decimal" step="any" data-b="' + c[0] + '" value="' + (ex[c[0]] != null ? ex[c[0]] : '') + '" placeholder="' + (ant[c[0]] != null ? 'antes: ' + fmtN(ant[c[0]]) : '') + '"></label>';
+  const sg = ex.seg || {};
+  const segIn = (t, k, i) => { const v = sg[t] && sg[t][k] ? sg[t][k][i] : null; return '<input type="number" inputmode="decimal" step="any" data-s="' + t + '|' + k + '|' + i + '" value="' + (v != null ? v : '') + '">'; };
+  const fl = abrirFolha('<h2>' + (d0 ? 'Bioimpedância de ' + dataCurta(d) : 'Registrar bioimpedância') + '</h2><p class="mini" style="margin:4px 0 10px">Copie os números da balança na mesma ordem em que ela mostra. Só o peso é obrigatório: deixe vazio o que a sua balança não tiver.</p>' +
+    '<label class="campo"><span>Data da avaliação</span><input type="date" id="bioD" value="' + d + '"' + (d0 ? ' disabled' : '') + '></label>' +
+    '<div class="grade2">' + BIO.map(campo).join('') + '</div>' +
+    '<details style="margin:6px 0 12px"><summary>Análise por segmento (opcional)</summary><p class="mini" style="margin:6px 0">Gordura e músculo de cada parte do corpo: o peso (kg) e o % que a balança mostra embaixo dele.</p><div class="bio-seg"><span></span><span class="mini">Gord. kg</span><span class="mini">Gord. %</span><span class="mini">Músc. kg</span><span class="mini">Músc. %</span>' +
+    SEGS.map(([k, n]) => '<span class="mini">' + n + '</span>' + segIn('g', k, 0) + segIn('g', k, 1) + segIn('m', k, 0) + segIn('m', k, 1)).join('') + '</div></details>' +
+    '<div class="grade2">' + (d0 ? '<button class="btn perigo" id="bioR">Excluir</button>' : '<button class="btn" id="bioC">Cancelar</button>') + '<button class="btn pri" id="bioO">Salvar</button></div>', el => {
+      if ($('#bioC', el)) $('#bioC', el).onclick = () => fecharFolha(fl);
+      if ($('#bioR', el)) $('#bioR', el).onclick = async () => { if (await confirmar('Excluir a bioimpedância de ' + dataCurta(d) + '? O peso e o % de gordura dela continuam em Peso e Medidas.', 'Excluir', true)) { S.bio = S.bio.filter(x => x.d !== d); salvar(); fecharFolha(fl); render(); } };
+      $('#bioO', el).onclick = () => {
+        const dd = $('#bioD', el).value; if (!dd) { toast('Escolha a data.'); return; }
+        const n = { d: dd }; let ruim = null;
+        $$('[data-b]', el).forEach(i => { const v = num(i.value); if (v == null) return; const c = BIO.find(y => y[0] === i.dataset.b); if (v < c[5] || v > c[6]) ruim = c[1]; n[c[0]] = v; });
+        if (ruim) { toast('Confira: ' + ruim + ' está fora do normal.'); return; }
+        if (n.peso == null) { toast('Preencha pelo menos o peso.'); return; }
+        const seg = { g: {}, m: {} }; let temSeg = false;
+        $$('[data-s]', el).forEach(i => { const v = num(i.value); if (v == null || v < 0 || v > 1000) return; const [t, k, j] = i.dataset.s.split('|'); (seg[t][k] = seg[t][k] || [null, null])[Number(j)] = v; temSeg = true; });
+        if (temSeg) n.seg = seg;
+        S.bio = S.bio.filter(x => x.d !== dd).concat(n);
+        fecharFolha(fl); aplicarBio(n);
+      };
+    });
+}
+/* a avaliação vai para Peso e Medidas; sem perfil, abre o perfil já preenchido (altura sai do IMC) */
+function aplicarBio(n) {
+  const maisNova = bioOrdenada().pop().d === n.d;
+  const pz = S.peso.find(x => x.d === n.d); if (pz) pz.kg = n.peso; else S.peso.push({ d: n.d, kg: n.peso });
+  if (n.gord != null) { let md = S.medidas.find(x => x.d === n.d); if (!md) { md = { d: n.d }; S.medidas.push(md); } md.bf = n.gord; }
+  if (!S.perfil) {
+    salvar(); render();
+    const alt = n.imc ? Math.round(Math.sqrt(n.peso / n.imc) * 100) : null;
+    folhaPerfil({ peso: n.peso, bf: n.gord != null ? n.gord : null, altura: alt && alt >= 120 && alt <= 230 ? alt : 175 }, true);
+    return;
+  }
+  if (maisNova) { S.perfil.peso = pesoAtual(); if (n.gord != null) S.perfil.bf = n.gord; }
+  salvar(); render();
+  toast(maisNova ? 'Bioimpedância salva. Peso' + (n.gord != null ? ' e % de gordura' : '') + ' atualizados no perfil; metas recalculadas.' : 'Bioimpedância salva.');
+}
 /* ---- peso ---- */
 function telaPeso() {
   const t = tendenciaPeso();
@@ -2412,6 +2573,7 @@ function htmlRelatorio(n) {
   });
   const pesos = S.peso.filter(x => x.d >= ini && x.d <= fim).sort((a, b) => a.d < b.d ? -1 : 1);
   const cint = serieMedida('cintura').filter(x => x.d >= ini && x.d <= fim);
+  const bios = S.bio.filter(x => x.d >= ini && x.d <= fim).sort((a, b) => a.d < b.d ? -1 : 1); const ub = bios[bios.length - 1];
   const item = (rot, val) => '<tr><td>' + rot + '</td><td>' + val + '</td></tr>';
   let h = '<div class="rel"><h1>Forja · resumo de ' + n + ' dias</h1><div class="sub">' + dataCurta(ini) + ' a ' + dataCurta(fim) + '</div>';
   if (p) h += '<p class="sub">' + (p.sexo === 'M' ? 'Homem' : 'Mulher') + ', ' + p.idade + ' anos, ' + p.altura + ' cm · objetivo: ' + OBJETIVOS[p.objetivo].toLowerCase() + (m ? ' · meta: ' + fmt(m.kcal) + ' kcal, ' + m.prot + ' g de proteína, ' + m.carb + ' g de carboidrato, ' + m.gord + ' g de gordura' + (m.manual ? ' (metas do nutricionista)' : '') : '') + '</p>';
@@ -2423,7 +2585,8 @@ function htmlRelatorio(n) {
     item('Dias na meta de água', aguaOk + ' de ' + n) +
     item('Sono (média)', sonos.length ? hm(sonos.reduce((a, b) => a + b, 0) / sonos.length) + ' (' + sonos.length + ' noites)' : '–') +
     item('Peso', pesos.length ? fmt(pesos[0].kg, 1) + ' kg → ' + fmt(pesos[pesos.length - 1].kg, 1) + ' kg (' + (pesos.length > 1 ? (pesos[pesos.length - 1].kg - pesos[0].kg > 0 ? '+' : '') + fmt(pesos[pesos.length - 1].kg - pesos[0].kg, 1) + ' kg, ' : '') + pesos.length + ' pesagens)' : 'sem pesagens') +
-    (cint.length ? item('Cintura', fmt(cint[0].v, 1) + ' cm → ' + fmt(cint[cint.length - 1].v, 1) + ' cm') : '') + '</table>';
+    (cint.length ? item('Cintura', fmt(cint[0].v, 1) + ' cm → ' + fmt(cint[cint.length - 1].v, 1) + ' cm') : '') +
+    (ub ? item('Bioimpedância (' + dataCurta(ub.d) + ')', [ub.gord != null ? fmtN(ub.gord) + '% de gordura' : '', ub.magra != null ? 'massa magra ' + fmtN(ub.magra) + ' kg' : '', ub.massaMusc != null ? 'massa muscular ' + fmtN(ub.massaMusc) + ' kg' : '', ub.visceral != null ? 'gordura visceral ' + fmtN(ub.visceral) : ''].filter(Boolean).join(' · ') || 'registrada') : '') + '</table>';
   h += '<h3>Dia a dia</h3><div class="tab-rol"><table><thead><tr><th>Dia</th><th>kcal / meta</th><th>Prot. (g)</th><th>Treino</th><th>Água (L)</th><th>Sono</th><th>Peso</th></tr></thead><tbody>' + linhas.join('') + '</tbody></table></div>';
   h += '<p class="mini" style="margin-top:10px">Gerado pelo app Forja em ' + dataCurta(fim) + '. Valores de alimentos pela TBCA (USP) e medidas caseiras aproximadas; são estimativas e não substituem a avaliação de um profissional.</p></div>';
   return h;
@@ -2592,6 +2755,10 @@ const ACOES = {
     S.cfg.ultimoBackup = hojeISO(); S.cfg.backupAdiado = null; salvar(); render(); toast('Cópia gerada. Guarde o arquivo no Drive ou mande para você mesmo.');
   },
   importar: () => $('#arqImport').click(),
+  novaBio: () => folhaBio(null),
+  editarBio: b => folhaBio(b.dataset.d),
+  bioSel: b => { bioSel = b.dataset.v; render(); },
+  togEconomico: () => { S.cfg.economico = !economico(); salvar(); render(); toast(economico() ? 'Dieta econômica ligada: o cardápio passa a usar alimentos baratos.' : 'Dieta econômica desligada.'); },
   togSemSal: () => { S.cfg.semSal = !S.cfg.semSal; salvar(); render(); toast(S.cfg.semSal ? 'Sódio dos preparos agora sem sal.' : 'Sódio dos preparos agora com sal.'); },
   baixarAntes: () => { let t = textoAntes; try { t = t || localStorage.getItem(KEY_ANTES); } catch (e) { } if (!t) { toast('A cópia não está mais neste aparelho.'); return; } baixarTexto(t, 'forja-copia-antes-1.6.json'); toast('Cópia baixada. Guarde o arquivo.'); },
   adiarBackup: () => { S.cfg.backupAdiado = hojeISO(); salvar(); render(); },

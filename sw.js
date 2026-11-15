@@ -1,7 +1,7 @@
-/* Forja 1.6.0: guarda o app no aparelho para abrir na hora e funcionar sem internet.
+/* Forja 1.7.0: guarda o app no aparelho para abrir na hora e funcionar sem internet.
    Ao publicar uma versão nova, mude o número em CACHE: o navegador baixa tudo de novo e apaga a cópia velha. */
-const CACHE = 'forja-1.6.0';
-const ARQS = ['./', 'index.html', 'app.js?v=1.6.0', 'alimentos.js?v=1.6.0', 'exercicios.js?v=1.6.0', 'manifest.json', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'forja-1.7.0';
+const ARQS = ['./', 'index.html', 'app.js?v=1.7.0', 'alimentos.js?v=1.7.0', 'exercicios.js?v=1.7.0', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQS)).then(() => self.skipWaiting()));
 });
