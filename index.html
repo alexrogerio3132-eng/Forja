@@ -228,6 +228,18 @@ body.com-timer .toast{bottom:calc(176px + env(safe-area-inset-bottom))}
 .bio-seg input[type=number]{min-width:0;padding:8px 6px;font-size:15px}
 input.lido{border-color:var(--acento)!important;background:var(--acento-fundo)!important}
 input.lido.conferir{border-color:var(--alerta)!important;background:rgba(242,169,59,.12)!important}
+
+/* 1.7.3: marcar como comido e reposição */
+.chk{width:32px;height:32px;min-width:32px;border-radius:9px;border:2px solid #3a4148;background:none;display:inline-flex;align-items:center;justify-content:center;padding:0;color:var(--txt3);font-weight:700;flex-shrink:0}
+.chk svg{width:17px;height:17px}
+.chk.on{background:var(--ok);border-color:var(--ok);color:#06180f}
+.chk.meio{border-color:var(--ok);color:var(--ok)}
+.lista li.pendente .txt,.lista li.pendente .val{opacity:.6}
+.tag.faltou{color:var(--alerta);border-color:#6b4a1a;background:#2a1d10}
+.repor{background:#12222a;border:1px solid #1f4656;border-radius:12px;padding:10px 12px;margin:0 0 10px;font-size:13px}
+.repor.pergunta{background:#1d1a10;border-color:#4a3d18}
+.btn.jacomi{border-style:dashed}
+.btn.jacomi.on{border-style:solid;border-color:var(--ok);color:var(--ok);background:rgba(76,195,138,.08)}
 </style>
 </head>
 <body>
@@ -241,8 +253,8 @@ input.lido.conferir{border-color:var(--alerta)!important;background:rgba(242,169
 </header>
 <main id="main"></main>
 <nav class="abas" id="abas"></nav>
-<script src="alimentos.js?v=1.7.2"></script>
-<script src="exercicios.js?v=1.7.2"></script>
-<script src="app.js?v=1.7.2"></script>
+<script src="alimentos.js?v=1.7.3"></script>
+<script src="exercicios.js?v=1.7.3"></script>
+<script src="app.js?v=1.7.3"></script>
 </body>
 </html>

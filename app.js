@@ -1,9 +1,9 @@
 /* FORJA · Dieta e Treino — app pessoal (PWA). Dados em localStorage, chave dieta_treino_v1.
    Arquivos: index.html (tela e estilo) · alimentos.js e exercicios.js (tabelas) · app.js (este programa). */
 'use strict';
-const APP_VERSAO = '1.7.2';
+const APP_VERSAO = '1.7.3';
 const KEY = 'dieta_treino_v1';
-const SCHEMA = 3;
+const SCHEMA = 4;
 
 /* ===================== utilidades ===================== */
 const $ = (s, el) => (el || document).querySelector(s);
@@ -78,6 +78,13 @@ function migrar(o) {
     }
     delete x.cintura;
   });
+  /* 1.7.3: cada alimento pode ser marcado como comido; só o marcado conta nos macros.
+     Na primeira vez, o que já estava registrado até hoje vira "comido" (os totais não mudam);
+     dias futuros eram planejamento e ficam por marcar. */
+  if ((o.schema || 1) < 4) {
+    const h = hojeISO();
+    for (const iso in o.dias) { const d = o.dias[iso]; if (!d || !d.ref) continue; for (const k in d.ref) (d.ref[k] || []).forEach(it => { if (it.ok === undefined) it.ok = iso <= h; }); }
+  }
   o.schema = SCHEMA;
   return o;
 }
@@ -232,11 +239,42 @@ function render() {
   hidratarFotos($('#main'));
   if (!pularRolagem) requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
   pularRolagem = false;
+  navTela();
 }
 
 /* ===================== folhas e confirmações =====================
    Cada folha é um elemento NOVO, criado e destruído: nenhum evento de uma caixa
    anterior encerra a seguinte (UNIV-ERR-007). */
+/* ===================== botão voltar do celular =====================
+   Cada tela (aba + sub-aba) e cada janela aberta vira um passo no histórico do navegador.
+   Voltar fecha a última janela aberta; sem janela, volta para a tela anterior; na primeira tela, sai. */
+const NAV = { pendente: 0, fila: [], restaurando: false, seq: 0 };
+function chaveTela() { return aba + '|' + (aba === 'treino' ? subTreino : '') + '|' + (aba === 'progresso' ? subProg : ''); }
+function estadoTela(extra) { return Object.assign({ forja: 1, tela: chaveTela(), aba, subTreino, subProg }, extra || {}); }
+function navEmpurra(st) { if (NAV.pendente) NAV.fila.push(st); else try { history.pushState(st, ''); } catch (e) { } }
+/* chamado a cada render: se a tela mudou, vira um passo novo */
+function navTela() {
+  if (NAV.restaurando) return;
+  const st = history.state;
+  if (!st || !st.forja) { if (!NAV.pendente) { try { history.replaceState(estadoTela(), ''); } catch (e) { } } return; } /* primeira tela: não cria passo extra */
+  if (st.tela === chaveTela()) return;
+  if (NAV.fila.length && NAV.fila[NAV.fila.length - 1].tela === chaveTela()) return;
+  navEmpurra(estadoTela());
+}
+/* fechar pelo botão da janela: tira o passo dela do histórico (sem disparar a volta de tela) */
+function navTiraFolha() { NAV.pendente++; try { history.back(); } catch (e) { NAV.pendente--; } }
+window.addEventListener('popstate', e => {
+  if (NAV.pendente) { NAV.pendente--; if (!NAV.pendente && NAV.fila.length) { NAV.fila.splice(0).forEach(st => { try { history.pushState(st, ''); } catch (er) { } }); } return; }
+  const abertas = $$('.fundo');
+  if (abertas.length) { fecharFolha(abertas[abertas.length - 1], true); return; }
+  const st = e.state;
+  if (st && st.forja) {
+    NAV.restaurando = true;
+    aba = st.aba || 'hoje'; subTreino = st.subTreino || 'hoje'; subProg = st.subProg || 'semana';
+    if (subTreino !== 'plano') rascunho = null;
+    render(); NAV.restaurando = false;
+  }
+});
 function abrirFolha(html, aoMontar) {
   const f = document.createElement('div');
   f.className = 'fundo';
@@ -244,20 +282,24 @@ function abrirFolha(html, aoMontar) {
   f.addEventListener('click', e => { if (e.target === f) fecharFolha(f); });
   document.body.appendChild(f);
   document.body.style.overflow = 'hidden';
+  f._nav = ++NAV.seq; navEmpurra(estadoTela({ folha: f._nav }));
   if (aoMontar) aoMontar(f.firstChild, f);
   return f;
 }
-function fecharFolha(f) {
+/* porVoltar = a janela está fechando porque a pessoa apertou voltar (o passo já saiu do histórico) */
+function fecharFolha(f, porVoltar) {
   f = f || $$('.fundo').pop();
-  if (f && f._aoFechar) { const fn = f._aoFechar; f._aoFechar = null; try { fn(); } catch (e) { console.error(e); } }
-  if (f && f.parentNode) f.parentNode.removeChild(f);
+  if (!f || !f.parentNode) return;
+  if (f._aoFechar) { const fn = f._aoFechar; f._aoFechar = null; try { fn(); } catch (e) { console.error(e); } }
+  f.parentNode.removeChild(f);
   if (!$('.fundo')) document.body.style.overflow = '';
+  if (!porVoltar && f._nav) navTiraFolha();
 }
 function confirmar(msg, ok, perigo) {
   return new Promise(res => {
     const f = abrirFolha('<p style="font-size:16px;margin:4px 0 16px">' + msg + '</p><div class="grade2"><button class="btn" data-r="0">Cancelar</button><button class="btn ' + (perigo ? 'perigo' : 'pri') + '" data-r="1">' + (ok || 'Confirmar') + '</button></div>',
-      el => { $$('button[data-r]', el).forEach(b => b.onclick = () => { fecharFolha(f); res(b.dataset.r === '1'); }); });
-    f.addEventListener('click', e => { if (e.target === f) res(false); });
+      el => { $$('button[data-r]', el).forEach(b => b.onclick = () => { res(b.dataset.r === '1'); fecharFolha(f); }); });
+    f._aoFechar = () => res(false); /* fechar tocando fora ou no voltar = cancelar */
   });
 }
 let toastT = null;
@@ -438,11 +480,20 @@ function somar(lista) {
   lista.forEach(it => { const m = macrosItem(it); for (const k in t) t[k] += m[k]; });
   return t;
 }
+/* só conta o que foi marcado como comido (✓); o resto é planejamento */
+function comido(it) { return it.ok === true; }
 function totaisDia(iso) {
+  const d = dia(iso); const todos = [];
+  if (d) for (const k in d.ref) todos.push(...d.ref[k].filter(comido));
+  return somar(todos);
+}
+function totaisPlanejados(iso) {
   const d = dia(iso); const todos = [];
   if (d) for (const k in d.ref) todos.push(...d.ref[k]);
   return somar(todos);
 }
+/* cópia de itens como planejamento: tira as marcas de comido e de reposição */
+function comoPlano(l) { return JSON.parse(JSON.stringify(l || [])).map(it => { delete it.ok; delete it.rep; delete it.repDe; delete it.nao; return it; }); }
 function aguaDia(iso) { const d = dia(iso); return d ? d.agua.reduce((s, a) => s + a.ml, 0) : 0; }
 function gastoExercicio(iso) {
   const d = dia(iso); if (!d) return 0;
@@ -545,6 +596,12 @@ function listaDoDia(iso, m, t) {
   if (c || cards.length) {
     const cc = c && cardioCod(c.cod);
     add(cards.length ? true : false, 'Cardio' + (c ? ' · ' + esc(TIPOS_CARDIO[c.tipo].nome) : ''), cards.length ? cards.reduce((a, x) => a + x.min, 0) + ' min feitos' : c.min + ' min · ' + esc(cc ? cc.nome : ''), 'irTreinoHoje');
+  }
+  /* refeições: quantas já foram marcadas como feitas */
+  const ats = refAtivas().filter(k => d && (d.ref[k] || []).length);
+  if (ats.length) {
+    const feitasR = ats.filter(k => refeicaoResolvida(d.ref[k])).length; const nRep = reposicoes(iso).reduce((a, r) => a + r.linhas.length, 0);
+    add(feitasR === ats.length, 'Refeições ' + feitasR + ' de ' + ats.length + ' marcadas', nRep ? nRep + ' alimento(s) faltou: veja a reposição sugerida' : (feitasR === ats.length ? 'Tudo marcado' : 'Marque ✓ na Dieta quando comer'), 'irAba', ' data-v="dieta"');
   }
   /* proteína */
   if (m) { const ok = t.p >= m.prot * 0.9; add(ok, 'Proteína ' + fmt(t.p) + ' / ' + fmt(m.prot) + ' g', ok ? 'Meta do dia batida' : 'Faltam ' + fmt(m.prot - t.p) + ' g', 'irAba', ' data-v="dieta"'); }
@@ -649,13 +706,14 @@ function resumoSemana(iso) {
 
 /* ===================== DIETA ===================== */
 function telaDieta() {
-  const m = metaDia(dataSel); const d = dia(dataSel); const t = totaisDia(dataSel);
+  const m = metaDia(dataSel); const d = dia(dataSel); const t = totaisDia(dataSel); const tp = totaisPlanejados(dataSel);
   let h = '';
   if (m) {
     const passouC = m.estilo !== 'padrao' && t.c > m.carb * 1.15;
     h += '<div class="cartao"><div class="cab"><h2>' + fmt(t.kcal) + ' <span class="mini">/ ' + fmt(m.kcal) + ' kcal</span></h2>' + (m.estilo !== 'padrao' ? '<button class="tag estilo" data-acao="editarEstilo">' + ESTILOS[m.estilo].curto + '</button>' : '') + (S.jejum ? '<span class="tag">' + esc(S.jejum.tipo) + '</span>' : '') + (m.plantao ? '<span class="tag plantao">Plantão</span>' : '') + '</div>' +
       barraMacro('Proteína', 'var(--p)', t.p, m.prot) + barraMacro('Carboidrato' + (m.estilo !== 'padrao' ? ' (limite)' : ''), passouC ? 'var(--alerta)' : 'var(--c)', t.c, m.carb) + barraMacro('Gordura', 'var(--g)', t.g, m.gord) + (m.fibra ? barraMacro('Fibra', '#6E7780', t.fibra, m.fibra) : '') +
       (passouC ? '<div class="aviso" style="margin-top:8px">Carboidrato acima do limite da ' + esc(ESTILOS[m.estilo].nome.toLowerCase()) + (m.estilo === 'keto' || m.estilo === 'nocarb' ? ': acima de ~50 g por dia o corpo tende a sair da cetose.' : '.') + '</div>' : '') +
+      (tp.kcal > t.kcal + 1 ? '<div class="mini" style="margin:2px 0 4px">Comido (✓): ' + fmt(t.kcal) + ' kcal · planejado no dia: ' + fmt(tp.kcal) + ' kcal. Só o que tem ✓ conta.</div>' : '') +
       (t.kcal > 0 ? nutrientesDia(dataSel) : '') + sugestaoFalta(t, m) + '</div>';
   } else h += '<div class="aviso">Sem perfil, o app não sabe suas metas. Configure em <b>Eu</b>.</div>';
   const vazio = !(d && Object.keys(d.ref).some(k => d.ref[k].length));
@@ -666,20 +724,87 @@ function telaDieta() {
     '<button class="btn bloco grande-b" data-acao="addRefeicaoAgora">+ Adicionar alimento</button></div>';
   h += '<div class="rolax" style="margin-bottom:12px">' + (vazio ? '' : '<button class="chip on" data-acao="gerarCardapio">⚡ Cardápio pelos macros</button><button class="chip" data-acao="copiarOntem">Copiar dia anterior</button>') +
     '<button class="chip" data-acao="listaCompras">Lista de compras</button><button class="chip" data-acao="novoAlimento">+ Criar alimento</button>' + (S.modelos.length ? '<button class="chip" data-acao="gerirModelos">Refeições prontas (' + S.modelos.length + ')</button>' : '') + (vazio ? '' : '<button class="chip" data-acao="limparDia">Limpar dia</button>') + '</div>';
+  const rep = reposicoes(dataSel);
   refAtivas().forEach(k => {
-    const itens = (d && d.ref[k]) || []; const s = somar(itens);
-    h += '<div class="cartao"><div class="cab"><h3>' + REFEICOES[k] + '</h3><span class="mini">' + fmt(s.kcal) + ' kcal</span><div class="dir"><button class="ic" data-acao="menuRef" data-ref="' + k + '" aria-label="Opções da refeição">' + IC.menu + '</button><button class="ic" data-acao="addAlim" data-ref="' + k + '" aria-label="Adicionar">' + IC.mais + '</button></div></div>';
+    const itens = (d && d.ref[k]) || []; const s = somar(itens.filter(comido)); const sp = somar(itens);
+    const nOk = itens.filter(comido).length; const estado = !itens.length ? 'vazia' : nOk === itens.length ? 'feita' : nOk ? 'parcial' : 'nao';
+    const passou = refeicaoPassou(dataSel, k);
+    h += '<div class="cartao ref-' + estado + '"><div class="cab">' + (itens.length ? '<button class="chk ' + (estado === 'feita' ? 'on' : estado === 'parcial' ? 'meio' : '') + '" data-acao="okRef" data-ref="' + k + '" aria-label="Marcar a refeição toda como feita">' + (estado === 'feita' ? IC.check : estado === 'parcial' ? '–' : '') + '</button>' : '') + '<h3>' + REFEICOES[k] + '</h3><span class="mini">' + (itens.length && nOk < itens.length ? fmt(s.kcal) + ' / ' + fmt(sp.kcal) : fmt(s.kcal)) + ' kcal</span><div class="dir"><button class="ic" data-acao="menuRef" data-ref="' + k + '" aria-label="Opções da refeição">' + IC.menu + '</button><button class="ic" data-acao="addAlim" data-ref="' + k + '" aria-label="Adicionar">' + IC.mais + '</button></div></div>';
+    /* reposição: o que faltou numa refeição anterior, sugerido aqui */
+    rep.filter(r => r.para === k).forEach(r => { h += cartaoReposicao(r); });
+    /* passou do horário e nada foi marcado: pergunta em vez de supor */
+    if (itens.length && passou && !refeicaoResolvida(itens)) h += '<div class="repor pergunta"><div style="margin-bottom:6px">Já passou do horário. <b>Você comeu?</b></div><div class="chips"><button class="btn peq pri" data-acao="okRef" data-ref="' + k + '">Comi tudo</button><button class="btn peq" data-acao="naoComi" data-ref="' + k + '">Não comi</button><span class="mini" style="align-self:center">ou marque ✓ só no que comeu</span></div></div>';
     if (!itens.length) h += '<div class="mini">Nada registrado.</div>';
     else {
       h += '<ul class="lista">' + itens.map((it, i) => {
-        const mm = macrosItem(it);
+        const mm = macrosItem(it); const ok = comido(it);
+        const falt = faltou(it, itens);
         const det = it.q ? 'só calorias' : (especificado(it.f) ? '✎ ' + esc(detalheCurto(it.f)) + '<br>' : '') + fmt(it.g) + ' g' + esc(medidaTexto(it.f, it.g));
-        return '<li data-acao="editItem" data-ref="' + k + '" data-i="' + i + '"><div class="txt"><div class="t">' + esc(nomeItem(it)) + '</div><div class="mini">' + det + ' · P ' + fmt(mm.p) + ' · C ' + fmt(mm.c) + ' · G ' + fmt(mm.g) + '</div></div><div class="val">' + fmt(mm.kcal) + '</div></li>';
-      }).join('') + '</ul><div class="mini" style="margin-top:6px">P ' + fmt(s.p) + ' g · C ' + fmt(s.c) + ' g · G ' + fmt(s.g) + ' g</div>';
+        return '<li class="' + (ok ? 'comido' : 'pendente') + '" data-acao="editItem" data-ref="' + k + '" data-i="' + i + '"><button class="chk ' + (ok ? 'on' : '') + '" data-acao="okItem" data-ref="' + k + '" data-i="' + i + '" aria-label="' + (ok ? 'Desmarcar' : 'Marcar como comido') + '">' + (ok ? IC.check : '') + '</button><div class="txt"><div class="t">' + esc(nomeItem(it)) + (it.repDe ? ' <span class="tag">reposição</span>' : '') + (falt ? ' <span class="tag faltou">faltou</span>' : '') + (!ok && it.rep ? ' <span class="tag">não comido</span>' : '') + '</div><div class="mini">' + det + ' · P ' + fmt(mm.p) + ' · C ' + fmt(mm.c) + ' · G ' + fmt(mm.g) + '</div></div><div class="val">' + fmt(mm.kcal) + '</div></li>';
+      }).join('') + '</ul><div class="mini" style="margin-top:6px">' + (nOk < itens.length ? 'Comido: ' : '') + 'P ' + fmt(s.p) + ' g · C ' + fmt(s.c) + ' g · G ' + fmt(s.g) + ' g' + (nOk < itens.length ? ' · planejado: P ' + fmt(sp.p) + ' · C ' + fmt(sp.c) + ' · G ' + fmt(sp.g) : '') + '</div>';
     }
     h += '</div>';
   });
   return h;
+}
+/* ---------- refeição que já passou e reposição do que faltou ---------- */
+/* passou do horário: dia que já foi, ou ~2h30 depois do horário típico, ou uma refeição seguinte já foi marcada */
+function refeicaoPassou(iso, k) {
+  const h = hojeISO(); if (iso < h) return true; if (iso > h) return false;
+  const d = dia(iso); const at = refAtivas(); const i = at.indexOf(k);
+  if (d && at.slice(i + 1).some(x => (d.ref[x] || []).some(comido))) return true;
+  const agora = new Date(); return agora.getHours() + agora.getMinutes() / 60 >= (HORA_REF[k] || 12) + 2.5;
+}
+/* a refeição já foi "resolvida": algo marcado como comido ou marcada como "não comi" */
+function refeicaoResolvida(l) { return l.some(comido) || l.some(it => it.nao); }
+/* alimento que faltou: não foi comido numa refeição resolvida, e ainda não teve decisão de reposição */
+function faltou(it, l) { return !comido(it) && !it.rep && (it.nao || l.some(comido)); }
+/* alimentos que cabem em cada tipo de refeição (respeitando o estilo de dieta) */
+function poolRepor(k) {
+  const est = estiloAtual(); const G = GER; const princ = k === 'almoco' || k === 'jantar';
+  const L = est === 'keto' ? (princ ? ['protKeto', 'gordKeto'] : ['ovoQueijo', 'gordKeto'])
+    : est === 'nocarb' ? ['protKeto', 'ovoQueijo', 'gordAnimal']
+    : est === 'lowcarb' ? (princ ? ['protPrincipal', 'carbLow', 'gordura'] : ['protLeve', 'frutaLow', 'gordura'])
+    : (princ ? ['protPrincipal', 'carbPrincipal', 'feijao', 'gordura'] : ['protLeve', 'carbCafe', 'fruta', 'gordura']);
+  const ev = S.cfg.evitar || []; const vistos = new Set(); const r = [];
+  L.forEach(n => (G[n] || []).forEach(x => { if (FOODS.has(x[0]) && !ev.includes(x[0]) && !vistos.has(x[0])) { vistos.add(x[0]); r.push(x); } }));
+  return r;
+}
+/* proporção de calorias que vem de proteína, carbo e gordura: é o "jeito" do alimento */
+function perfilMacro(a) { const t = (a.p || 0) * 4 + (a.c || 0) * 4 + (a.g || 0) * 9 || 1; return [(a.p || 0) * 4 / t, (a.c || 0) * 4 / t, (a.g || 0) * 9 / t]; }
+/* para cada refeição com alimento que faltou: o mesmo alimento (se combina) ou o mais parecido, nas mesmas calorias, na próxima refeição */
+function reposicoes(iso) {
+  const d = dia(iso); if (!d) return [];
+  const at = refAtivas(); const r = [];
+  at.forEach((k, i) => {
+    const l = d.ref[k] || []; if (!refeicaoResolvida(l)) return;
+    const prox = at.slice(i + 1).find(x => !refeicaoPassou(iso, x) && !refeicaoResolvida(d.ref[x] || [])); if (!prox) return;
+    const pool = poolRepor(prox); const linhas = [];
+    l.forEach((it, idx) => {
+      if (!faltou(it, l) || it.q) return;
+      const f = alimento(it.f); if (!f) return;
+      const mm = macrosItem(it); if (mm.kcal < 60) return; /* verdura, tempero e um fio de azeite não precisam de reposição */
+      const pf = perfilMacro(f); const sx = SIMPLES_DE.get(it.f);
+      const dist = x => { const q = perfilMacro(FOODS.get(x[0])); return q.reduce((s, v, j) => s + Math.abs(v - pf[j]), 0); };
+      let alt = pool.find(x => x[0] === it.f || (sx && SIMPLES_DE.get(x[0]) === sx));
+      if (!alt) alt = pool.slice().sort((a, b) => dist(a) - dist(b) || (S.favs.includes(b[0]) - S.favs.includes(a[0])))[0];
+      if (!alt) return;
+      const mesmo = alt[0] === it.f || (sx && SIMPLES_DE.get(alt[0]) === sx);
+      const nf = FOODS.get(alt[0]); if (!nf.kcal) return;
+      const min = alt.length > 3 ? alt[2] : 30, max = alt.length > 3 ? alt[3] : 300;
+      let g = mesmo ? it.g : mm.kcal / nf.kcal * 100; const parcial = g > max * 1.05;
+      g = clamp(Math.round(g / 5) * 5, min, max);
+      linhas.push({ idx, item: it, f: alt[0], g, parcial, mesmo });
+    });
+    if (linhas.length) r.push({ de: k, para: prox, linhas });
+  });
+  return r;
+}
+function cartaoReposicao(r) {
+  const nomeDe = REFEICOES[r.de].toLowerCase(), nomePara = REFEICOES[r.para].toLowerCase();
+  return '<div class="repor"><div class="mini" style="margin-bottom:4px"><b>Faltou no ' + esc(nomeDe) + '.</b> Para repor aqui, com as mesmas calorias:</div>' +
+    r.linhas.map(x => { const a = macrosItem(x.item), b = macrosItem({ f: x.f, g: x.g }); return '<div style="margin:4px 0">• <span class="mini">' + esc(nomeItem(x.item)) + ' ' + fmt(x.item.g) + ' g →</span> <b>' + (x.mesmo ? 'o mesmo, ' : '') + fmt(x.g) + ' g de ' + esc(nomeAlim(x.f)) + '</b>' + esc(medidaTexto(x.f, x.g)) + ' <span class="mini">(' + fmt(b.kcal) + ' de ' + fmt(a.kcal) + ' kcal · P ' + fmt(b.p) + ' C ' + fmt(b.c) + ' G ' + fmt(b.g) + (x.parcial ? ' · repõe só uma parte' : '') + ')</span></div>'; }).join('') +
+    '<div class="chips" style="margin-top:6px"><button class="btn peq pri" data-acao="reporAdd" data-de="' + r.de + '" data-para="' + r.para + '">+ Adicionar ao ' + esc(nomePara) + '</button><button class="btn peq fant" data-acao="reporIgnorar" data-de="' + r.de + '">Não precisa</button></div></div>';
 }
 /* registro rápido: só calorias (e macros, se souber), para refeição fora de casa */
 function folhaRapido(ref, idx) {
@@ -695,7 +820,7 @@ function folhaRapido(ref, idx) {
         const k = num($('#rqK', el).value); if (!k || k <= 0 || k > 5000) { toast('Informe as calorias (até 5.000).'); return; }
         const n = { n: $('#rqN', el).value.trim(), kcal: Math.round(k), p: num($('#rqP', el).value), c: num($('#rqC', el).value), g: num($('#rqG', el).value) };
         const d = dia(dataSel, true); d.ref[ref] = d.ref[ref] || [];
-        if (it) it.q = n; else d.ref[ref].push({ q: n });
+        if (it) it.q = n; else d.ref[ref].push({ q: n, ok: dataSel <= hojeISO() });
         salvar(); fecharFolha(fl); render(); toast(it ? 'Atualizado.' : 'Adicionado em ' + REFEICOES[ref] + '.');
       };
     });
@@ -746,7 +871,7 @@ function folhaCompras() {
 function nutrientesDia(iso) {
   const d = dia(iso); if (!d) return '';
   const t = { sodio: 0, acucar: 0, sat: 0 }; let semDado = 0;
-  for (const k in d.ref) d.ref[k].forEach(it => { const f = alimento(it.f); if (!f) return; const q = it.g / 100; if (f.sodio == null) semDado++; t.sodio += (sodioDe(f) || 0) * q; t.acucar += (f.acucar || 0) * q; t.sat += (f.sat || 0) * q; });
+  for (const k in d.ref) d.ref[k].filter(comido).forEach(it => { const f = alimento(it.f); if (!f) return; const q = it.g / 100; if (f.sodio == null) semDado++; t.sodio += (sodioDe(f) || 0) * q; t.acucar += (f.acucar || 0) * q; t.sat += (f.sat || 0) * q; });
   const m = calcMetas(); const kc = m ? m.kcal : 2000;
   const lim = { sodio: 2000, acucar: Math.round(kc * 0.10 / 4), sat: Math.round(kc * 0.10 / 9) };
   const linha = (nome, v, l, un) => '<span style="color:' + (v > l ? 'var(--alerta)' : 'var(--txt2)') + '">' + nome + ' <b>' + fmt(v) + '</b>/' + fmt(l) + ' ' + un + '</span>';
@@ -768,7 +893,7 @@ function folhaMenuRef(k) {
         if (op === 'copiar') {
           let orig = null; for (let i = 1; i <= 14; i++) { const dd = dia(addDias(dataSel, -i)); if (dd && dd.ref[k] && dd.ref[k].length) { orig = dd.ref[k]; break; } }
           if (!orig) { toast('Nenhum ' + REFEICOES[k].toLowerCase() + ' nos últimos 14 dias.'); return; }
-          const dd = dia(dataSel, true); dd.ref[k] = (dd.ref[k] || []).concat(JSON.parse(JSON.stringify(orig))); salvar(); fecharFolha(fl); render(); toast(REFEICOES[k] + ' copiado.'); return;
+          const dd = dia(dataSel, true); dd.ref[k] = (dd.ref[k] || []).concat(comoPlano(orig)); salvar(); fecharFolha(fl); render(); toast(REFEICOES[k] + ' copiado.'); return;
         }
         if (op === 'limpar') { if (await confirmar('Apagar os itens de ' + REFEICOES[k].toLowerCase() + '?', 'Apagar', true)) { d.ref[k] = []; salvar(); fecharFolha(fl); render(); } }
       };
@@ -778,7 +903,7 @@ function folhaSalvarModelo(k) {
   const itens = dia(dataSel).ref[k]; const s = somar(itens);
   const fl = abrirFolha('<h2 style="margin-bottom:10px">Salvar refeição pronta</h2><p class="mini">' + itens.length + ' itens · ' + fmt(s.kcal) + ' kcal · P ' + fmt(s.p) + ' g</p><label class="campo"><span>Nome</span><input type="text" id="mdN" value="' + esc('Meu ' + REFEICOES[k].toLowerCase()) + '"></label><div class="grade2"><button class="btn" id="mdC">Cancelar</button><button class="btn pri" id="mdO">Salvar</button></div>', el => {
     $('#mdC', el).onclick = () => fecharFolha(fl);
-    $('#mdO', el).onclick = () => { const nome = $('#mdN', el).value.trim() || REFEICOES[k]; S.modelos.push({ id: 'M' + Date.now(), nome, itens: JSON.parse(JSON.stringify(itens)) }); salvar(); fecharFolha(fl); render(); toast('Salvo. Use pelo menu ⋯ de qualquer refeição.'); };
+    $('#mdO', el).onclick = () => { const nome = $('#mdN', el).value.trim() || REFEICOES[k]; S.modelos.push({ id: 'M' + Date.now(), nome, itens: comoPlano(itens) }); salvar(); fecharFolha(fl); render(); toast('Salvo. Use pelo menu ⋯ de qualquer refeição.'); };
   });
 }
 function folhaModelos(k) {
@@ -793,7 +918,7 @@ function folhaModelos(k) {
       if (rm) { e.stopPropagation(); if (await confirmar('Excluir esta refeição pronta?', 'Excluir', true)) { S.modelos = S.modelos.filter(x => x.id !== rm.dataset.rm); salvar(); desenhar(); render(); } return; }
       const r = e.target.closest('[data-md]'); if (!r) return; if (!k) { toast('Para usar, abra o menu ⋯ de uma refeição na Dieta.'); return; }
       const md = S.modelos.find(x => x.id === r.dataset.md); const d = dia(dataSel, true);
-      d.ref[k] = (d.ref[k] || []).concat(JSON.parse(JSON.stringify(md.itens))); salvar(); fecharFolha(fl); render(); toast(md.nome + ' adicionado em ' + REFEICOES[k] + '.');
+      d.ref[k] = (d.ref[k] || []).concat(comoPlano(md.itens)); salvar(); fecharFolha(fl); render(); toast(md.nome + ' adicionado em ' + REFEICOES[k] + '.');
     };
   });
 }
@@ -992,8 +1117,13 @@ function folhaQuantidade(ref, id, idx, aoAdicionar) {
     '<div class="grade4" id="prevMac"></div>' +
     (variantes.length ? '<details id="qEsp" style="margin-top:12px"' + (especificado(id) ? ' open' : '') + '><summary>Especificar tipo / preparo (opcional) · ' + variantes.length + ' opções</summary><div id="qVar" style="margin-top:6px"></div></details>' : '') +
     '<details style="margin-top:10px"><summary>Mais nutrientes (por 100 g)</summary><div class="mini" style="margin-top:6px" id="qNut"></div></details>' +
-    '<div class="grade2" style="margin-top:14px">' + (idx != null ? '<button class="btn perigo" id="remItem">Remover</button>' : '<button class="btn" id="cancQ">Cancelar</button>') + '<button class="btn pri" id="okQ">' + (idx != null ? 'Salvar' : 'Adicionar') + '</button></div>', el => {
+    '<button type="button" class="btn bloco jacomi" id="qJa" style="margin-top:12px"></button>' +
+    '<div class="grade2" style="margin-top:10px">' + (idx != null ? '<button class="btn perigo" id="remItem">Remover</button>' : '<button class="btn" id="cancQ">Cancelar</button>') + '<button class="btn pri" id="okQ">' + (idx != null ? 'Salvar' : 'Adicionar') + '</button></div>', el => {
       const inp = $('#qtdG', el);
+      /* "já comi": num alimento novo vem ligado para hoje e dias passados, desligado para dias futuros (planejamento) */
+      let ja = idx != null ? comido(d0.ref[ref][idx]) : dataSel <= hojeISO();
+      const pJa = () => { const b = $('#qJa', el); b.classList.toggle('on', ja); b.innerHTML = ja ? '✓ Já comi · conta nos macros' : '○ Ainda não comi · só planejado'; };
+      pJa(); $('#qJa', el).onclick = () => { ja = !ja; pJa(); };
       const prev = () => {
         const g = num(inp.value) || 0; const mm = macrosItem({ f: cur, g }); const f = alimento(cur);
         $('#prevMac', el).innerHTML = [['kcal', mm.kcal, '#ECEFF1'], ['Prot', mm.p, 'var(--p)'], ['Carb', mm.c, 'var(--c)'], ['Gord', mm.g, 'var(--g)']].map(x => '<div class="cartao" style="padding:8px;margin:0;text-align:center"><div class="num" style="font-size:20px">' + fmt(x[1], x[0] === 'kcal' ? 0 : 1) + '</div><div class="mini"><i class="ponto" style="background:' + x[2] + '"></i>' + x[0] + '</div></div>').join('');
@@ -1025,10 +1155,10 @@ function folhaQuantidade(ref, id, idx, aoAdicionar) {
       $('#okQ', el).onclick = () => {
         const g = num(inp.value); if (!g || g <= 0) { toast('Informe a quantidade.'); return; }
         const d = dia(dataSel, true); d.ref[ref] = d.ref[ref] || [];
-        if (idx != null) { d.ref[ref][idx].g = g; d.ref[ref][idx].f = cur; } else d.ref[ref].push({ f: cur, g });
+        if (idx != null) { d.ref[ref][idx].g = g; d.ref[ref][idx].f = cur; d.ref[ref][idx].ok = ja; } else d.ref[ref].push({ f: cur, g, ok: ja });
         S.recentes = [cur].concat(S.recentes.filter(x => x !== cur)).slice(0, 30);
         S.ultG[cur] = g;
-        salvar(); fecharFolha(fl); if (aoAdicionar) aoAdicionar(); render(); toast(idx != null ? 'Atualizado.' : 'Adicionado em ' + REFEICOES[ref] + '.');
+        salvar(); fecharFolha(fl); if (aoAdicionar) aoAdicionar(); render(); toast(idx != null ? 'Atualizado.' : 'Adicionado em ' + REFEICOES[ref] + (ja ? ' (comido).' : ' (planejado).'));
       };
     });
 }
@@ -1273,7 +1403,7 @@ function folhaCardapio() {
       const d = dia(dataSel, true);
       const tem = Object.keys(d.ref).some(k => d.ref[k].length);
       if (tem && !(await confirmar('Este dia já tem refeições registradas. Substituir pelo cardápio?', 'Substituir'))) return;
-      d.ref = JSON.parse(JSON.stringify(plano)); salvar(); fecharFolha(fl); render(); toast('Cardápio aplicado. Toque num item para ajustar.');
+      d.ref = {}; for (const k in plano) d.ref[k] = comoPlano(plano[k]); salvar(); fecharFolha(fl); render(); toast('Cardápio aplicado. Marque ✓ em cada alimento quando comer.');
     };
     /* a semana: o primeiro dia usa o cardápio da tela; os outros ganham um novo cada (respeitando plantão/folga) */
     $('#cardSemana', el).onclick = async () => {
@@ -2995,6 +3125,20 @@ const ACOES = {
   editItem: b => { const d = dia(dataSel); const it = d.ref[b.dataset.ref][Number(b.dataset.i)]; if (it.q) { folhaRapido(b.dataset.ref, Number(b.dataset.i)); return; } folhaQuantidade(b.dataset.ref, it.f, Number(b.dataset.i)); },
   gerarCardapio: () => folhaCardapio(),
   menuRef: b => folhaMenuRef(b.dataset.ref),
+  okItem: b => { const it = dia(dataSel).ref[b.dataset.ref][Number(b.dataset.i)]; it.ok = !comido(it); if (it.ok) { delete it.rep; delete it.nao; } salvar(); render(); },
+  okRef: b => {
+    const l = dia(dataSel).ref[b.dataset.ref]; const todos = l.every(comido);
+    l.forEach(it => { it.ok = !todos; if (it.ok) { delete it.rep; delete it.nao; } }); salvar(); render();
+    toast(todos ? REFEICOES[b.dataset.ref] + ': desmarcado.' : REFEICOES[b.dataset.ref] + ' feito. Se não comeu algum alimento, toque no ✓ dele para tirar.');
+  },
+  naoComi: b => { dia(dataSel).ref[b.dataset.ref].forEach(it => { if (!comido(it)) it.nao = true; }); salvar(); render(); toast('Marcado como não comido. Se fizer falta, a próxima refeição mostra o que repor.'); },
+  reporAdd: b => {
+    const r = reposicoes(dataSel).find(x => x.de === b.dataset.de && x.para === b.dataset.para); if (!r) return;
+    const d = dia(dataSel, true); const dest = d.ref[r.para] = d.ref[r.para] || [];
+    r.linhas.forEach(x => { x.item.rep = 'repor'; dest.push({ f: x.f, g: x.g, ok: false, repDe: r.de }); });
+    salvar(); render(); toast(r.linhas.length + ' alimento(s) no ' + REFEICOES[r.para].toLowerCase() + '. Marque ✓ quando comer.');
+  },
+  reporIgnorar: b => { const l = dia(dataSel).ref[b.dataset.de]; l.forEach(it => { if (faltou(it, l)) it.rep = 'ignorar'; }); salvar(); render(); },
   gerirModelos: () => folhaModelos(null),
   novoAlimento: () => folhaNovoAlimento(),
   copiarOntem: async () => {
@@ -3002,7 +3146,7 @@ const ACOES = {
     if (!orig) { toast('Nenhum dia com refeições nos últimos 14 dias.'); return; }
     const d = dia(dataSel, true); const tem = Object.keys(d.ref).some(k => d.ref[k].length);
     if (tem && !(await confirmar('Substituir as refeições deste dia pelas de ' + rotuloDia(orig).toLowerCase() + '?', 'Substituir'))) return;
-    d.ref = JSON.parse(JSON.stringify(S.dias[orig].ref)); salvar(); render(); toast('Copiado de ' + rotuloDia(orig).toLowerCase() + '.');
+    d.ref = {}; for (const k in S.dias[orig].ref) d.ref[k] = comoPlano(S.dias[orig].ref[k]); salvar(); render(); toast('Copiado de ' + rotuloDia(orig).toLowerCase() + '.');
   },
   limparDia: async () => { if (await confirmar('Apagar todas as refeições deste dia?', 'Apagar', true)) { dia(dataSel).ref = {}; salvar(); render(); } },
   subTreino: b => { subTreino = b.dataset.v; if (subTreino !== 'plano') rascunho = null; pularRolagem = true; render(); window.scrollTo(0, 0); },
